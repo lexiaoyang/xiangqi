@@ -1,7 +1,10 @@
 :root {
   font-family: "PingFang SC", "Microsoft YaHei", Inter, system-ui, sans-serif;
-  color: #e5d4b0;
-  background: radial-gradient(circle at top, #33231f, #171111 60%);
+  color: #5c3d26;
+  background:
+    radial-gradient(circle at 15% 10%, rgb(255 248 232 / 90%), transparent 38%),
+    radial-gradient(circle at 80% 90%, rgb(237 216 180 / 70%), transparent 40%),
+    linear-gradient(180deg, #f7edd9, #efdfc3 52%, #e8d2ad);
 }
 
 * {
@@ -14,7 +17,7 @@ body {
 }
 
 .app {
-  padding: 20px;
+  padding: 24px 20px 30px;
   max-width: 1280px;
   margin: 0 auto;
 }
@@ -27,7 +30,7 @@ h1 {
 
 p {
   margin: 0;
-  color: #cfbc9a;
+  color: #79563c;
 }
 
 .toolbar {
@@ -40,12 +43,13 @@ p {
 button,
 select,
 .import-button {
-  border: 1px solid #8f6846;
-  background: linear-gradient(180deg, #543723, #3d261c);
-  color: #f5e7c7;
+  border: 1px solid #b88c5a;
+  background: linear-gradient(180deg, #f9edd4, #ecd4ae);
+  color: #5d3c27;
   border-radius: 10px;
   padding: 8px 12px;
   cursor: pointer;
+  box-shadow: 0 1px 3px rgb(106 71 34 / 20%);
 }
 
 button:disabled {
@@ -72,45 +76,145 @@ button:disabled {
 }
 
 .board-wrap {
-  padding: 14px;
-  border-radius: 14px;
-  background: linear-gradient(160deg, #6f442b, #43291c 55%, #2a1a13);
-  box-shadow: 0 10px 30px rgb(0 0 0 / 35%);
-}
-
-.board-row {
-  display: grid;
-  grid-template-columns: repeat(9, minmax(42px, 1fr));
-}
-
-.cell {
-  aspect-ratio: 1;
-  border: 1px solid rgb(245 218 178 / 33%);
-  background: linear-gradient(180deg, rgb(232 201 151 / 88%), rgb(205 166 116 / 88%));
   position: relative;
+  padding: 18px 16px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ecd8b2, #e2c99f);
+  box-shadow:
+    inset 0 0 0 1px rgb(162 121 77 / 35%),
+    0 8px 24px rgb(120 86 45 / 22%);
 }
 
-.cell.highlight {
-  background: linear-gradient(180deg, #dca642, #c8872a);
+.board-wrap::before,
+.board-wrap::after {
+  content: "";
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #b07b44, #d9b07b 30%, #aa733c 70%, #cd9b67);
 }
 
-.cell.selected {
-  outline: 3px solid #8f1414;
-  z-index: 1;
+.board-wrap::before {
+  top: 10px;
+}
+
+.board-wrap::after {
+  bottom: 10px;
+}
+
+.board-grid {
+  position: relative;
+  width: min(100%, 680px);
+  aspect-ratio: 8 / 9;
+  margin: 0 auto;
+  background:
+    radial-gradient(circle at 20% 15%, rgb(255 248 232 / 48%), transparent 34%),
+    radial-gradient(circle at 78% 82%, rgb(176 126 65 / 22%), transparent 40%),
+    linear-gradient(180deg, #f2dcb5, #dfbf90);
+  border: 2px solid rgb(143 101 54 / 72%);
+  border-radius: 8px;
+  overflow: visible;
+}
+
+.board-svg {
+  position: absolute;
+  inset: 36px;
+  width: calc(100% - 72px);
+  height: calc(100% - 72px);
+  pointer-events: none;
+}
+
+.board-border {
+  fill: transparent;
+  stroke: rgb(140 102 63 / 92%);
+  stroke-width: 2.6;
+}
+
+.board-line {
+  stroke: rgb(140 102 63 / 90%);
+  stroke-width: 2;
+}
+
+.river-text {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -52%);
+  color: rgb(138 101 64 / 86%);
+  letter-spacing: 0.46rem;
+  font-size: clamp(18px, 2.2vw, 30px);
+  font-weight: 700;
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  pointer-events: none;
+}
+
+.board-points {
+  position: absolute;
+  inset: 36px;
+}
+
+.point {
+  position: absolute;
+  width: 64px;
+  height: 64px;
+  transform: translate(-50%, -50%);
+  border: none;
+  background: transparent;
+  border-radius: 50%;
+  padding: 0;
+}
+
+.point::before {
+  content: none;
+}
+
+.point::after {
+  content: none;
+}
+
+.point.highlight::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  background: #cf9838;
+  box-shadow: 0 0 0 4px rgb(207 152 56 / 26%);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.point.selected::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  background: #9f1f1a;
+  box-shadow: 0 0 0 4px rgb(159 31 26 / 20%);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
 }
 
 .piece {
   width: 86%;
   height: 86%;
   border-radius: 50%;
-  border: 2px solid #5c391f;
-  margin: 0 auto;
+  border: 2px solid #a06f3f;
+  margin: 5px auto 0;
   display: grid;
   place-items: center;
-  font-size: clamp(20px, 2.6vw, 28px);
+  font-size: clamp(20px, 2.4vw, 30px);
   font-weight: 700;
-  background: radial-gradient(circle at top, #fff5de, #dec39a);
-  box-shadow: 0 4px 10px rgb(0 0 0 / 25%);
+  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
+  background: radial-gradient(circle at 30% 24%, #fffdf6, #f2dfbe 66%, #d6b27d);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 40%),
+    0 5px 10px rgb(120 80 40 / 22%);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -119,11 +223,11 @@ button:disabled {
 }
 
 .piece.red {
-  color: #9d1212;
+  color: #be3d2c;
 }
 
 .piece.black {
-  color: #162d59;
+  color: #35507a;
 }
 
 .piece.simple {
@@ -133,14 +237,14 @@ button:disabled {
 
 .side-panel {
   border-radius: 12px;
-  background: rgb(20 14 12 / 72%);
-  border: 1px solid #5b3a27;
+  background: rgb(255 249 237 / 76%);
+  border: 1px solid rgb(170 127 84 / 45%);
   padding: 12px;
 }
 
 .recommend-line {
   margin: 8px 0;
-  color: #f7deb1;
+  color: #6f4c31;
 }
 
 .eval-bar {
@@ -162,7 +266,7 @@ button:disabled {
   padding-left: 18px;
   max-height: 280px;
   overflow: auto;
-  color: #e5d5b8;
+  color: #6a492f;
 }
 
 .replay-actions {
@@ -176,5 +280,15 @@ button:disabled {
 @media (max-width: 980px) {
   .layout {
     grid-template-columns: 1fr;
+  }
+
+  .point {
+    width: 50px;
+    height: 50px;
+  }
+
+  .river-text {
+    letter-spacing: 0.26rem;
+    font-size: 18px;
   }
 }

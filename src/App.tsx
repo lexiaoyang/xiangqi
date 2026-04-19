@@ -19,7 +19,7 @@ const pieceText: Record<string, string> = {
   "black-elephant": "象",
   "black-horse": "馬",
   "black-rook": "車",
-  "black-cannon": "砲",
+  "black-cannon": "炮",
   "black-pawn": "卒"
 };
 
@@ -229,42 +229,68 @@ export default function App() {
 
       <section className="layout">
         <div className="board-wrap" role="application" aria-label="中国象棋棋盘">
-          {displayBoard.map((row, r) => (
-            <div className="board-row" key={r}>
-              {row.map((cell, c) => {
-                const pos = { row: r, col: c };
-                const highlighted = selectedMoves.some((m) => equalPos(m, pos));
-                const selectedCell = selected ? equalPos(selected, pos) : false;
+          <div className="board-grid">
+            <svg className="board-svg" viewBox="0 0 800 900" aria-hidden="true">
+              <rect x="0" y="0" width="800" height="900" className="board-border" />
+              {Array.from({ length: 10 }).map((_, idx) => (
+                <line key={`h-${idx}`} x1="0" y1={idx * 100} x2="800" y2={idx * 100} className="board-line" />
+              ))}
+              {Array.from({ length: 9 }).map((_, idx) => {
+                const x = idx * 100;
+                if (idx === 0 || idx === 8) {
+                  return <line key={`v-${idx}`} x1={x} y1="0" x2={x} y2="900" className="board-line" />;
+                }
                 return (
-                  <button
-                    key={`${r}-${c}`}
-                    className={`cell ${highlighted ? "highlight" : ""} ${selectedCell ? "selected" : ""}`}
-                    aria-label={`棋位 ${r}-${c}`}
-                    onClick={() => onCellClick(r, c)}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      if (dragging) {
-                        setSelected(dragging);
-                        tryMove(pos);
-                        setDragging(null);
-                      }
-                    }}
-                    onDragOver={(e) => e.preventDefault()}
-                  >
-                    {cell && (
-                      <span
-                        draggable={cell.side === "red" && state.turn === "red"}
-                        onDragStart={() => setDragging({ row: r, col: c })}
-                        className={`piece ${cell.side} ${deviceTier === "low" ? "simple" : ""}`}
-                      >
-                        {pieceText[`${cell.side}-${cell.type}`]}
-                      </span>
-                    )}
-                  </button>
+                  <g key={`v-${idx}`}>
+                    <line x1={x} y1="0" x2={x} y2="400" className="board-line" />
+                    <line x1={x} y1="500" x2={x} y2="900" className="board-line" />
+                  </g>
                 );
               })}
+              <line x1="300" y1="0" x2="500" y2="200" className="board-line" />
+              <line x1="500" y1="0" x2="300" y2="200" className="board-line" />
+              <line x1="300" y1="700" x2="500" y2="900" className="board-line" />
+              <line x1="500" y1="700" x2="300" y2="900" className="board-line" />
+            </svg>
+            <div className="river-text">楚 河　汉 界</div>
+            <div className="board-points">
+              {displayBoard.map((row, r) =>
+                row.map((cell, c) => {
+                  const pos = { row: r, col: c };
+                  const highlighted = selectedMoves.some((m) => equalPos(m, pos));
+                  const selectedCell = selected ? equalPos(selected, pos) : false;
+                  return (
+                    <button
+                      key={`${r}-${c}`}
+                      className={`point ${highlighted ? "highlight" : ""} ${selectedCell ? "selected" : ""}`}
+                      style={{ left: `${(c / 8) * 100}%`, top: `${(r / 9) * 100}%` }}
+                      aria-label={`棋位 ${r}-${c}`}
+                      onClick={() => onCellClick(r, c)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (dragging) {
+                          setSelected(dragging);
+                          tryMove(pos);
+                          setDragging(null);
+                        }
+                      }}
+                      onDragOver={(e) => e.preventDefault()}
+                    >
+                      {cell && (
+                        <span
+                          draggable={cell.side === "red" && state.turn === "red"}
+                          onDragStart={() => setDragging({ row: r, col: c })}
+                          className={`piece ${cell.side} ${deviceTier === "low" ? "simple" : ""}`}
+                        >
+                          {pieceText[`${cell.side}-${cell.type}`]}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })
+              )}
             </div>
-          ))}
+          </div>
         </div>
 
         <aside className="side-panel">
