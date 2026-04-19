@@ -1,0 +1,301 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Difficulty, GameState, Move, Position, Side } from "./types";
+import { createInitialState, evaluateTerminal, generateLegalMoves, isInCheck, toFen, applyMove } from "./engine/rules";
+import { buildReplay, exportRecord, importRecord } from "./engine/replay";
+import { createTurnTimer, getRemainingMs, isTimeout } from "./engine/timer";
+import { logEvent, withPerf } from "./telemetry/logger";
+
+const difficultyName: Record<Difficulty, string> = { easy: "简单", hard: "困难", hell: "地狱" };
+const pieceText: Record<string, string> = {
+  "red-king": "帅",
+  "red-advisor": "仕",
+  "red-elephant": "相",
+  "red-horse": "傌",
+  "red-rook": "俥",
+  "red-cannon": "炮",
+  "red-pawn": "兵",
+  "black-king": "将",
+  "black-advisor": "士",
+  "black-elephant": "象",
+  "black-horse": "馬",
+  "black-rook": "車",
+  "black-cannon": "砲",
+  "black-pawn": "卒"
+};
+
+const toKey = (p: Position) => `${p.row}-${p.col}`;
+const equalPos = (a: Position, b: Position) => a.row === b.row && a.col === b.col;
+
+export default function App() {
+  const [state, setState] = useState<GameState>(() => createInitialState());
+  const [selected, setSelected] = useState<Position | null>(null);
+  const [difficulty, setDifficulty] = useState<Difficulty>("hell");
+  const [events, setEvents] = useState<string[]>([]);
+  const [timer, setTimer] = useState(() => createTurnTimer("red"));
+  const [remaining, setRemaining] = useState(60_000);
+  const [recommendMove, setRecommendMove] = useState<Move | null>(null);
+  const [recommendScore, setRecommendScore] = useState<number>(0);
+  const [replayStep, setReplayStep] = useState<number | null>(null);
+  const [dragging, setDragging] = useState<Position | null>(null);
+  const [deviceTier, setDeviceTier] = useState<"high" | "low">("high");
+  const workerRef = useRef<Worker | null>(null);
+
+  const legalMoves = useMemo(() => generateLegalMoves({ board: state.board, turn: state.turn }), [state.board, state.turn]);
+  const selectedMoves = useMemo(
+    () => legalMoves.filter((m) => selected && equalPos(m.from, selected)).map((m) => m.to),
+    [legalMoves, selected]
+  );
+
+  const replay = useMemo(() => buildReplay(createInitialState().board, "red", state.history), [state.history]);
+  const replayState = replayStep === null ? null : replay[replayStep];
+  const displayBoard = replayState ? replayState.board : state.board;
+
+  useEffect(() => {
+    workerRef.current = new Worker(new URL("./engine/ai.worker.ts", import.meta.url), { type: "module" });
+    workerRef.current.onmessage = (event: MessageEvent<{ kind: "move" | "recommend"; result: { move: Move; score: number } | null }>) => {
+      const payload = event.data;
+      if (payload.kind === "recommend") {
+        setRecommendMove(payload.result?.move ?? null);
+        setRecommendScore(payload.result?.score ?? 0);
+      } else if (payload.result?.move) {
+        commitMove(payload.result.move, "black");
+      }
+    };
+    return () => workerRef.current?.terminate();
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const recompute = () => {
+      const lowByScreen = window.innerWidth < 900;
+      const lowByMotion = mq.matches;
+      setDeviceTier(lowByScreen || lowByMotion ? "low" : "high");
+    };
+    recompute();
+    window.addEventListener("resize", recompute);
+    mq.addEventListener("change", recompute);
+    return () => {
+      window.removeEventListener("resize", recompute);
+      mq.removeEventListener("change", recompute);
+    };
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setRemaining(getRemainingMs(timer));
+    }, 100);
+    return () => window.clearInterval(id);
+  }, [timer]);
+
+  useEffect(() => {
+    if (state.winner || replayStep !== null) return;
+    if (isTimeout(timer)) {
+      setEvents((x) => [`${state.turn === "red" ? "红方" : "黑方"}超时，判负。`, ...x].slice(0, 12));
+      setState((prev) => ({ ...prev, winner: state.turn === "red" ? "black" : "red" }));
+      return;
+    }
+    if (state.turn === "black") {
+      workerRef.current?.postMessage({ kind: "move", board: state.board, turn: "black", difficulty });
+    } else {
+      workerRef.current?.postMessage({ kind: "recommend", board: state.board, turn: "red", difficulty });
+    }
+  }, [state.turn, state.board, state.winner, difficulty, timer, replayStep]);
+
+  const pushEvent = (line: string) => setEvents((x) => [line, ...x].slice(0, 14));
+
+  const commitMove = (move: Move, actor: Side) => {
+    setState((prev) =>
+      withPerf("move_commit", () => {
+        const nextBoard = applyMove(prev.board, move);
+        const nextTurn: Side = prev.turn === "red" ? "black" : "red";
+        const terminal = evaluateTerminal({ board: nextBoard, turn: nextTurn });
+        const checkSide = isInCheck(nextBoard, nextTurn) ? nextTurn : null;
+        logEvent({
+          name: "move",
+          data: { actor, from: move.from, to: move.to, difficulty, fen: toFen({ board: nextBoard, turn: nextTurn }) }
+        });
+        setTimer(createTurnTimer(nextTurn));
+        setSelected(null);
+        setRecommendMove(null);
+        pushEvent(`${actor === "red" ? "红方" : "黑方"}: (${move.from.row},${move.from.col}) -> (${move.to.row},${move.to.col})`);
+        return {
+          board: nextBoard,
+          turn: nextTurn,
+          history: [...prev.history, move],
+          winner: terminal.winner,
+          inCheck: checkSide
+        };
+      })
+    );
+  };
+
+  const tryMove = (to: Position) => {
+    if (!selected || state.turn !== "red" || state.winner || replayStep !== null) return;
+    const found = legalMoves.find((m) => equalPos(m.from, selected) && equalPos(m.to, to));
+    if (!found) return;
+    commitMove(found, "red");
+  };
+
+  const onCellClick = (row: number, col: number) => {
+    const piece = state.board[row][col];
+    if (selected) {
+      tryMove({ row, col });
+      if (piece?.side === "red") setSelected({ row, col });
+      return;
+    }
+    if (piece?.side === "red" && state.turn === "red") setSelected({ row, col });
+  };
+
+  const applyRecommend = () => {
+    if (!recommendMove || state.turn !== "red" || state.winner) return;
+    commitMove(recommendMove, "red");
+    pushEvent("已采用推荐走法。");
+  };
+
+  const resetGame = () => {
+    setState(createInitialState());
+    setSelected(null);
+    setTimer(createTurnTimer("red"));
+    setRecommendMove(null);
+    setReplayStep(null);
+    setEvents(["新对局开始。"]);
+  };
+
+  const downloadRecord = () => {
+    const raw = exportRecord(toFen({ board: createInitialState().board, turn: "red" }), state.history);
+    const blob = new Blob([raw], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `xiangqi-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    pushEvent("棋谱已导出。");
+  };
+
+  const importFromFile = async (file: File) => {
+    const raw = await file.text();
+    const rec = importRecord(raw);
+    const base = createInitialState();
+    const importedHistory = rec.moves;
+    let board = base.board;
+    let turn: Side = "red";
+    importedHistory.forEach((mv) => {
+      board = applyMove(board, mv);
+      turn = turn === "red" ? "black" : "red";
+    });
+    const terminal = evaluateTerminal({ board, turn });
+    setState({ board, turn, history: importedHistory, winner: terminal.winner, inCheck: terminal.inCheck });
+    setTimer(createTurnTimer(turn));
+    setReplayStep(null);
+    pushEvent("棋谱已导入。");
+  };
+
+  const evalPercent = Math.max(5, Math.min(95, 50 + recommendScore / 200));
+
+  return (
+    <div className={`app ${deviceTier === "low" ? "low-tier" : ""}`}>
+      <header>
+        <h1>玄枢象棋</h1>
+        <p>高质量中国象棋 Web 对弈 · 简单/困难/地狱 · 每步 60 秒 · 顶级推荐</p>
+      </header>
+
+      <section className="toolbar">
+        <label>
+          难度
+          <select value={difficulty} onChange={(e) => setDifficulty(e.target.value as Difficulty)}>
+            <option value="easy">{difficultyName.easy}</option>
+            <option value="hard">{difficultyName.hard}</option>
+            <option value="hell">{difficultyName.hell}</option>
+          </select>
+        </label>
+        <button onClick={resetGame}>新对局</button>
+        <button onClick={applyRecommend} disabled={!recommendMove || state.turn !== "red" || !!state.winner}>
+          采用推荐
+        </button>
+        <button onClick={downloadRecord}>导出棋谱</button>
+        <label className="import-button">
+          导入棋谱
+          <input type="file" accept=".json" onChange={(e) => e.target.files?.[0] && importFromFile(e.target.files[0])} />
+        </label>
+      </section>
+
+      <section className="status-grid">
+        <div>当前回合：{state.turn === "red" ? "红方" : "黑方"}</div>
+        <div>步时倒计时：{(remaining / 1000).toFixed(1)}s / 60.0s</div>
+        <div>将军状态：{state.inCheck ? `${state.inCheck === "red" ? "红方" : "黑方"}被将军` : "无"}</div>
+        <div>结果：{state.winner ? (state.winner === "draw" ? "和棋" : `${state.winner === "red" ? "红方" : "黑方"}胜`) : "进行中"}</div>
+      </section>
+
+      <section className="layout">
+        <div className="board-wrap" role="application" aria-label="中国象棋棋盘">
+          {displayBoard.map((row, r) => (
+            <div className="board-row" key={r}>
+              {row.map((cell, c) => {
+                const pos = { row: r, col: c };
+                const highlighted = selectedMoves.some((m) => equalPos(m, pos));
+                const selectedCell = selected ? equalPos(selected, pos) : false;
+                return (
+                  <button
+                    key={`${r}-${c}`}
+                    className={`cell ${highlighted ? "highlight" : ""} ${selectedCell ? "selected" : ""}`}
+                    aria-label={`棋位 ${r}-${c}`}
+                    onClick={() => onCellClick(r, c)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (dragging) {
+                        setSelected(dragging);
+                        tryMove(pos);
+                        setDragging(null);
+                      }
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
+                  >
+                    {cell && (
+                      <span
+                        draggable={cell.side === "red" && state.turn === "red"}
+                        onDragStart={() => setDragging({ row: r, col: c })}
+                        className={`piece ${cell.side} ${deviceTier === "low" ? "simple" : ""}`}
+                      >
+                        {pieceText[`${cell.side}-${cell.type}`]}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        <aside className="side-panel">
+          <h3>推荐与评估</h3>
+          <div className="recommend-line">
+            推荐：
+            {recommendMove ? `${toKey(recommendMove.from)} -> ${toKey(recommendMove.to)}` : "计算中..."}
+          </div>
+          <div className="eval-bar">
+            <div className="eval-fill" style={{ width: `${evalPercent}%` }} />
+          </div>
+          <small>评估条用于显示局势倾向，推荐引擎强度高于地狱模式。</small>
+          <h3>复盘</h3>
+          <input
+            type="range"
+            min={0}
+            max={Math.max(0, replay.length - 1)}
+            value={replayStep ?? replay.length - 1}
+            onChange={(e) => setReplayStep(Number(e.target.value))}
+          />
+          <div className="replay-actions">
+            <button onClick={() => setReplayStep(null)}>回到实时局面</button>
+          </div>
+          <h3>事件面板</h3>
+          <ul className="events">
+            {events.map((line, idx) => (
+              <li key={`${line}-${idx}`}>{line}</li>
+            ))}
+          </ul>
+        </aside>
+      </section>
+    </div>
+  );
+}
