@@ -6,6 +6,7 @@ import { createTurnTimer, getRemainingMs, isTimeout } from "./engine/timer";
 import { logEvent, withPerf } from "./telemetry/logger";
 
 const difficultyName: Record<Difficulty, string> = { easy: "简单", hard: "困难", hell: "地狱" };
+type BattleMode = "human-vs-ai" | "ai-vs-ai";
 const pieceText: Record<string, string> = {
   "red-king": "帅",
   "red-advisor": "仕",
@@ -29,7 +30,10 @@ const equalPos = (a: Position, b: Position) => a.row === b.row && a.col === b.co
 export default function App() {
   const [state, setState] = useState<GameState>(() => createInitialState());
   const [selected, setSelected] = useState<Position | null>(null);
+  const [battleMode, setBattleMode] = useState<BattleMode>("human-vs-ai");
   const [difficulty, setDifficulty] = useState<Difficulty>("hell");
+  const [redAiDifficulty, setRedAiDifficulty] = useState<Difficulty>("hard");
+  const [blackAiDifficulty, setBlackAiDifficulty] = useState<Difficulty>("hell");
   const [events, setEvents] = useState<string[]>([]);
   const [timer, setTimer] = useState(() => createTurnTimer("red"));
   const [remaining, setRemaining] = useState(60_000);
@@ -39,6 +43,7 @@ export default function App() {
   const [dragging, setDragging] = useState<Position | null>(null);
   const [deviceTier, setDeviceTier] = useState<"high" | "low">("high");
   const workerRef = useRef<Worker | null>(null);
+  const pendingAiSideRef = useRef<Side>("black");
 
   const legalMoves = useMemo(() => generateLegalMoves({ board: state.board, turn: state.turn }), [state.board, state.turn]);
   const selectedMoves = useMemo(
@@ -58,7 +63,7 @@ export default function App() {
         setRecommendMove(payload.result?.move ?? null);
         setRecommendScore(payload.result?.score ?? 0);
       } else if (payload.result?.move) {
-        commitMove(payload.result.move, "black");
+        commitMove(payload.result.move, pendingAiSideRef.current);
       }
     };
     return () => workerRef.current?.terminate();
@@ -94,14 +99,24 @@ export default function App() {
       setState((prev) => ({ ...prev, winner: state.turn === "red" ? "black" : "red" }));
       return;
     }
-    if (state.turn === "black") {
-      workerRef.current?.postMessage({ kind: "move", board: state.board, turn: "black", difficulty });
+    const aiTurn = battleMode === "ai-vs-ai" || state.turn === "black";
+    if (aiTurn) {
+      const side = state.turn;
+      const aiDifficulty =
+        battleMode === "ai-vs-ai"
+          ? side === "red"
+            ? redAiDifficulty
+            : blackAiDifficulty
+          : difficulty;
+      pendingAiSideRef.current = side;
+      workerRef.current?.postMessage({ kind: "move", board: state.board, turn: side, difficulty: aiDifficulty });
     } else {
       workerRef.current?.postMessage({ kind: "recommend", board: state.board, turn: "red", difficulty });
     }
-  }, [state.turn, state.board, state.winner, difficulty, timer, replayStep]);
+  }, [state.turn, state.board, state.winner, difficulty, redAiDifficulty, blackAiDifficulty, battleMode, timer, replayStep]);
 
   const pushEvent = (line: string) => setEvents((x) => [line, ...x].slice(0, 14));
+  const canHumanOperate = battleMode === "human-vs-ai" && state.turn === "red" && !state.winner && replayStep === null;
 
   const commitMove = (move: Move, actor: Side) => {
     setState((prev) =>
@@ -130,7 +145,7 @@ export default function App() {
   };
 
   const tryMove = (to: Position) => {
-    if (!selected || state.turn !== "red" || state.winner || replayStep !== null) return;
+    if (!selected || !canHumanOperate) return;
     const found = legalMoves.find((m) => equalPos(m.from, selected) && equalPos(m.to, to));
     if (!found) return;
     commitMove(found, "red");
@@ -140,14 +155,14 @@ export default function App() {
     const piece = state.board[row][col];
     if (selected) {
       tryMove({ row, col });
-      if (piece?.side === "red") setSelected({ row, col });
+      if (piece?.side === "red" && canHumanOperate) setSelected({ row, col });
       return;
     }
-    if (piece?.side === "red" && state.turn === "red") setSelected({ row, col });
+    if (piece?.side === "red" && canHumanOperate) setSelected({ row, col });
   };
 
   const applyRecommend = () => {
-    if (!recommendMove || state.turn !== "red" || state.winner) return;
+    if (!recommendMove || !canHumanOperate) return;
     commitMove(recommendMove, "red");
     pushEvent("已采用推荐走法。");
   };
@@ -202,15 +217,49 @@ export default function App() {
 
       <section className="toolbar">
         <label>
-          难度
-          <select value={difficulty} onChange={(e) => setDifficulty(e.target.value as Difficulty)}>
-            <option value="easy">{difficultyName.easy}</option>
-            <option value="hard">{difficultyName.hard}</option>
-            <option value="hell">{difficultyName.hell}</option>
+          对战模式
+          <select
+            value={battleMode}
+            onChange={(e) => {
+              const mode = e.target.value as BattleMode;
+              setBattleMode(mode);
+              setSelected(null);
+              setRecommendMove(null);
+              setEvents((x) => [`已切换为${mode === "ai-vs-ai" ? "AI 对战" : "人机对战"}。`, ...x].slice(0, 14));
+            }}
+          >
+            <option value="human-vs-ai">人机对战</option>
+            <option value="ai-vs-ai">AI 对战</option>
           </select>
         </label>
+        <label>
+          {battleMode === "human-vs-ai" ? "黑方AI" : "红方AI"}
+          {battleMode === "human-vs-ai" ? (
+            <select value={difficulty} onChange={(e) => setDifficulty(e.target.value as Difficulty)}>
+              <option value="easy">{difficultyName.easy}</option>
+              <option value="hard">{difficultyName.hard}</option>
+              <option value="hell">{difficultyName.hell}</option>
+            </select>
+          ) : (
+            <select value={redAiDifficulty} onChange={(e) => setRedAiDifficulty(e.target.value as Difficulty)}>
+              <option value="easy">{difficultyName.easy}</option>
+              <option value="hard">{difficultyName.hard}</option>
+              <option value="hell">{difficultyName.hell}</option>
+            </select>
+          )}
+        </label>
+        {battleMode === "ai-vs-ai" && (
+          <label>
+            黑方AI
+            <select value={blackAiDifficulty} onChange={(e) => setBlackAiDifficulty(e.target.value as Difficulty)}>
+              <option value="easy">{difficultyName.easy}</option>
+              <option value="hard">{difficultyName.hard}</option>
+              <option value="hell">{difficultyName.hell}</option>
+            </select>
+          </label>
+        )}
         <button onClick={resetGame}>新对局</button>
-        <button onClick={applyRecommend} disabled={!recommendMove || state.turn !== "red" || !!state.winner}>
+        <button onClick={applyRecommend} disabled={!recommendMove || !canHumanOperate}>
           采用推荐
         </button>
         <button onClick={downloadRecord}>导出棋谱</button>
@@ -221,6 +270,7 @@ export default function App() {
       </section>
 
       <section className="status-grid">
+        <div>模式：{battleMode === "ai-vs-ai" ? "AI 对战" : "人机对战"}</div>
         <div>当前回合：{state.turn === "red" ? "红方" : "黑方"}</div>
         <div>步时倒计时：{(remaining / 1000).toFixed(1)}s / 60.0s</div>
         <div>将军状态：{state.inCheck ? `${state.inCheck === "red" ? "红方" : "黑方"}被将军` : "无"}</div>
@@ -278,7 +328,7 @@ export default function App() {
                     >
                       {cell && (
                         <span
-                          draggable={cell.side === "red" && state.turn === "red"}
+                          draggable={cell.side === "red" && canHumanOperate}
                           onDragStart={() => setDragging({ row: r, col: c })}
                           className={`piece ${cell.side} ${deviceTier === "low" ? "simple" : ""}`}
                         >
@@ -297,7 +347,11 @@ export default function App() {
           <h3>推荐与评估</h3>
           <div className="recommend-line">
             推荐：
-            {recommendMove ? `${toKey(recommendMove.from)} -> ${toKey(recommendMove.to)}` : "计算中..."}
+            {battleMode === "ai-vs-ai"
+              ? "AI 对战模式已关闭人工推荐"
+              : recommendMove
+                ? `${toKey(recommendMove.from)} -> ${toKey(recommendMove.to)}`
+                : "计算中..."}
           </div>
           <div className="eval-bar">
             <div className="eval-fill" style={{ width: `${evalPercent}%` }} />
