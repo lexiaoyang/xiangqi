@@ -13,36 +13,113 @@
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .app {
-  padding: 14px 12px calc(22px + env(safe-area-inset-bottom));
-  max-width: 1000px;
+  padding: 8px 10px calc(68px + env(safe-area-inset-bottom));
+  max-width: 860px;
   margin: 0 auto;
-  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.app-header {
+  padding: 6px 4px 2px;
 }
 
 h1 {
-  margin: 0 0 6px 0;
+  margin: 0 0 2px 0;
   font-weight: 700;
-  letter-spacing: 2px;
+  letter-spacing: 1px;
+  font-size: 22px;
 }
 
 p {
   margin: 0;
   color: #79563c;
+  font-size: 13px;
 }
 
-.toolbar {
-  margin-top: 12px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px;
-  border-radius: 12px;
-  background: rgb(255 248 235 / 72%);
+.app-main {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.screen {
+  height: 100%;
+  border-radius: 14px;
+  background: rgb(255 248 235 / 78%);
   border: 1px solid rgb(181 140 94 / 26%);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.screen h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.card-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #7b5a3d;
+}
+
+.primary-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.primary-btn {
+  grid-column: span 2;
+}
+
+.battle-screen {
+  justify-content: space-between;
+}
+
+.battle-status {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.battle-status span {
+  border-radius: 8px;
+  background: rgb(255 255 255 / 40%);
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.battle-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settings-note {
+  font-size: 12px;
+  color: #6f4c31;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 36%);
 }
 
 button,
@@ -68,28 +145,9 @@ button:disabled {
   display: none;
 }
 
-.status-grid {
-  margin-top: 10px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(130px, 1fr));
-  gap: 6px;
-  font-size: 13px;
-  padding: 10px;
-  border-radius: 12px;
-  background: rgb(255 248 235 / 62%);
-  border: 1px solid rgb(181 140 94 / 20%);
-}
-
-.layout {
-  margin-top: 10px;
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-}
-
 .board-wrap {
   position: relative;
-  padding: 18px 16px;
+  padding: 8px;
   border-radius: 16px;
   background: linear-gradient(180deg, #ecd8b2, #e2c99f);
   box-shadow:
@@ -118,7 +176,7 @@ button:disabled {
 
 .board-grid {
   position: relative;
-  width: min(100%, 720px);
+  width: min(100%, 100%);
   aspect-ratio: 8 / 9;
   margin: 0 auto;
   background:
@@ -247,52 +305,49 @@ button:disabled {
   transition: none;
 }
 
-.side-panel {
-  border-radius: 12px;
-  background: rgb(255 249 237 / 76%);
-  border: 1px solid rgb(170 127 84 / 45%);
-  padding: 12px;
-}
-
-.recommend-line {
-  margin: 8px 0;
-  color: #6f4c31;
-}
-
-.eval-bar {
-  width: 100%;
-  height: 12px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: #353638;
-  margin: 8px 0 10px;
-}
-
-.eval-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #9e2118, #dba242, #2f7f2f);
-}
-
-.events {
-  margin: 8px 0 0;
-  padding-left: 18px;
-  max-height: 280px;
-  overflow: auto;
-  color: #6a492f;
-}
-
-.replay-actions {
-  margin-top: 8px;
-}
-
 .low-tier .piece {
   animation: none;
 }
 
+.bottom-tabs {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  background: rgb(245 227 195 / 96%);
+  border-top: 1px solid rgb(160 123 84 / 38%);
+}
+
+.bottom-tabs button {
+  min-height: 42px;
+}
+
+.bottom-tabs .active {
+  background: linear-gradient(180deg, #e8c892, #d9ad73);
+  border-color: #a2733f;
+}
+
 @media (max-width: 980px) {
+  .card-grid,
+  .primary-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .primary-btn {
+    grid-column: span 1;
+  }
+
+  .battle-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .point {
-    width: 50px;
-    height: 50px;
+    width: 48px;
+    height: 48px;
   }
 
   .river-text {
@@ -302,7 +357,7 @@ button:disabled {
 }
 
 @media (min-width: 1100px) {
-  .layout {
-    grid-template-columns: minmax(560px, 760px) minmax(260px, 1fr);
+  .app {
+    max-width: 980px;
   }
 }

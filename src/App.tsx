@@ -7,6 +7,7 @@ import { logEvent, withPerf } from "./telemetry/logger";
 
 const difficultyName: Record<Difficulty, string> = { easy: "简单", hard: "困难", hell: "地狱" };
 type BattleMode = "human-vs-ai" | "ai-vs-ai";
+type AppTab = "mode" | "battle" | "settings";
 const pieceText: Record<string, string> = {
   "red-king": "帅",
   "red-advisor": "仕",
@@ -30,6 +31,7 @@ const equalPos = (a: Position, b: Position) => a.row === b.row && a.col === b.co
 export default function App() {
   const [state, setState] = useState<GameState>(() => createInitialState());
   const [selected, setSelected] = useState<Position | null>(null);
+  const [activeTab, setActiveTab] = useState<AppTab>("mode");
   const [hasStarted, setHasStarted] = useState(false);
   const [battleMode, setBattleMode] = useState<BattleMode>("human-vs-ai");
   const [difficulty, setDifficulty] = useState<Difficulty>("hell");
@@ -229,6 +231,7 @@ export default function App() {
     setHasStarted(true);
     setTimer(createTurnTimer(state.turn));
     setEvents((x) => ["对局已开始。", ...x].slice(0, 14));
+    setActiveTab("battle");
   };
 
   const downloadRecord = () => {
@@ -265,194 +268,194 @@ export default function App() {
   };
 
   const evalPercent = Math.max(5, Math.min(95, 50 + recommendScore / 200));
+  const latestEvent = events[0] ?? "暂无事件";
+  const modeText = battleMode === "ai-vs-ai" ? "AI 对战" : "人机对战";
+
+  const renderModeSettings = () => (
+    <>
+      <label>
+        对战模式
+        <select
+          value={battleMode}
+          onChange={(e) => {
+            const mode = e.target.value as BattleMode;
+            clearAiPending();
+            repetitionRef.current = new Map();
+            setBattleMode(mode);
+            setSelected(null);
+            setRecommendMove(null);
+            setEvents((x) => [`已切换为${mode === "ai-vs-ai" ? "AI 对战" : "人机对战"}。`, ...x].slice(0, 14));
+          }}
+        >
+          <option value="human-vs-ai">人机对战</option>
+          <option value="ai-vs-ai">AI 对战</option>
+        </select>
+      </label>
+      <label>
+        {battleMode === "human-vs-ai" ? "黑方AI" : "红方AI"}
+        {battleMode === "human-vs-ai" ? (
+          <select value={difficulty} onChange={(e) => setDifficulty(e.target.value as Difficulty)}>
+            <option value="easy">{difficultyName.easy}</option>
+            <option value="hard">{difficultyName.hard}</option>
+            <option value="hell">{difficultyName.hell}</option>
+          </select>
+        ) : (
+          <select value={redAiDifficulty} onChange={(e) => setRedAiDifficulty(e.target.value as Difficulty)}>
+            <option value="easy">{difficultyName.easy}</option>
+            <option value="hard">{difficultyName.hard}</option>
+            <option value="hell">{difficultyName.hell}</option>
+          </select>
+        )}
+      </label>
+      {battleMode === "ai-vs-ai" && (
+        <label>
+          黑方AI
+          <select value={blackAiDifficulty} onChange={(e) => setBlackAiDifficulty(e.target.value as Difficulty)}>
+            <option value="easy">{difficultyName.easy}</option>
+            <option value="hard">{difficultyName.hard}</option>
+            <option value="hell">{difficultyName.hell}</option>
+          </select>
+        </label>
+      )}
+      <label>
+        步间延时
+        <select value={aiStepDelayMs} onChange={(e) => setAiStepDelayMs(Number(e.target.value))}>
+          <option value={500}>0.5 秒</option>
+          <option value={900}>0.9 秒</option>
+          <option value={1400}>1.4 秒</option>
+        </select>
+      </label>
+    </>
+  );
 
   return (
     <div className={`app ${deviceTier === "low" ? "low-tier" : ""}`}>
-      <header>
+      <header className="app-header">
         <h1>玄枢象棋</h1>
         <p>H5 中国象棋 · AI 对战/人机对战 · 三难度模式</p>
       </header>
 
-      <section className="toolbar">
-        <label>
-          对战模式
-          <select
-            value={battleMode}
-            onChange={(e) => {
-              const mode = e.target.value as BattleMode;
-              clearAiPending();
-              repetitionRef.current = new Map();
-              setBattleMode(mode);
-              setSelected(null);
-              setRecommendMove(null);
-              setEvents((x) => [`已切换为${mode === "ai-vs-ai" ? "AI 对战" : "人机对战"}。`, ...x].slice(0, 14));
-            }}
-          >
-            <option value="human-vs-ai">人机对战</option>
-            <option value="ai-vs-ai">AI 对战</option>
-          </select>
-        </label>
-        <label>
-          {battleMode === "human-vs-ai" ? "黑方AI" : "红方AI"}
-          {battleMode === "human-vs-ai" ? (
-            <select value={difficulty} onChange={(e) => setDifficulty(e.target.value as Difficulty)}>
-              <option value="easy">{difficultyName.easy}</option>
-              <option value="hard">{difficultyName.hard}</option>
-              <option value="hell">{difficultyName.hell}</option>
-            </select>
-          ) : (
-            <select value={redAiDifficulty} onChange={(e) => setRedAiDifficulty(e.target.value as Difficulty)}>
-              <option value="easy">{difficultyName.easy}</option>
-              <option value="hard">{difficultyName.hard}</option>
-              <option value="hell">{difficultyName.hell}</option>
-            </select>
-          )}
-        </label>
-        {battleMode === "ai-vs-ai" && (
-          <label>
-            步间延时
-            <select value={aiStepDelayMs} onChange={(e) => setAiStepDelayMs(Number(e.target.value))}>
-              <option value={500}>0.5 秒</option>
-              <option value={900}>0.9 秒</option>
-              <option value={1400}>1.4 秒</option>
-            </select>
-          </label>
-        )}
-        {battleMode === "ai-vs-ai" && (
-          <label>
-            黑方AI
-            <select value={blackAiDifficulty} onChange={(e) => setBlackAiDifficulty(e.target.value as Difficulty)}>
-              <option value="easy">{difficultyName.easy}</option>
-              <option value="hard">{difficultyName.hard}</option>
-              <option value="hell">{difficultyName.hell}</option>
-            </select>
-          </label>
-        )}
-        <button onClick={startGame} disabled={hasStarted || !!state.winner}>
-          开始对局
-        </button>
-        <button onClick={resetGame}>新对局</button>
-        <button onClick={applyRecommend} disabled={!recommendMove || !canHumanOperate}>
-          采用推荐
-        </button>
-        <button onClick={downloadRecord}>导出棋谱</button>
-        <label className="import-button">
-          导入棋谱
-          <input type="file" accept=".json" onChange={(e) => e.target.files?.[0] && importFromFile(e.target.files[0])} />
-        </label>
-      </section>
-
-      <section className="status-grid">
-        <div>状态：{hasStarted ? "进行中" : "待开始"}</div>
-        <div>模式：{battleMode === "ai-vs-ai" ? "AI 对战" : "人机对战"}</div>
-        <div>AI 步间延时：{(aiStepDelayMs / 1000).toFixed(1)}s</div>
-        <div>当前回合：{state.turn === "red" ? "红方" : "黑方"}</div>
-        <div>步时倒计时：{(remaining / 1000).toFixed(1)}s / 60.0s</div>
-        <div>将军状态：{state.inCheck ? `${state.inCheck === "red" ? "红方" : "黑方"}被将军` : "无"}</div>
-        <div>结果：{state.winner ? (state.winner === "draw" ? "和棋" : `${state.winner === "red" ? "红方" : "黑方"}胜`) : "进行中"}</div>
-      </section>
-
-      <section className="layout">
-        <div className="board-wrap" role="application" aria-label="中国象棋棋盘">
-          <div className="board-grid">
-            <svg className="board-svg" viewBox="0 0 800 900" aria-hidden="true">
-              <rect x="0" y="0" width="800" height="900" className="board-border" />
-              {Array.from({ length: 10 }).map((_, idx) => (
-                <line key={`h-${idx}`} x1="0" y1={idx * 100} x2="800" y2={idx * 100} className="board-line" />
-              ))}
-              {Array.from({ length: 9 }).map((_, idx) => {
-                const x = idx * 100;
-                if (idx === 0 || idx === 8) {
-                  return <line key={`v-${idx}`} x1={x} y1="0" x2={x} y2="900" className="board-line" />;
-                }
-                return (
-                  <g key={`v-${idx}`}>
-                    <line x1={x} y1="0" x2={x} y2="400" className="board-line" />
-                    <line x1={x} y1="500" x2={x} y2="900" className="board-line" />
-                  </g>
-                );
-              })}
-              <line x1="300" y1="0" x2="500" y2="200" className="board-line" />
-              <line x1="500" y1="0" x2="300" y2="200" className="board-line" />
-              <line x1="300" y1="700" x2="500" y2="900" className="board-line" />
-              <line x1="500" y1="700" x2="300" y2="900" className="board-line" />
-            </svg>
-            <div className="river-text">楚 河　汉 界</div>
-            <div className="board-points">
-              {displayBoard.map((row, r) =>
-                row.map((cell, c) => {
-                  const pos = { row: r, col: c };
-                  const highlighted = selectedMoves.some((m) => equalPos(m, pos));
-                  const selectedCell = selected ? equalPos(selected, pos) : false;
-                  return (
-                    <button
-                      key={`${r}-${c}`}
-                      className={`point ${highlighted ? "highlight" : ""} ${selectedCell ? "selected" : ""}`}
-                      style={{ left: `${(c / 8) * 100}%`, top: `${(r / 9) * 100}%` }}
-                      aria-label={`棋位 ${r}-${c}`}
-                      onClick={() => hasStarted && onCellClick(r, c)}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        if (hasStarted && dragging) {
-                          setSelected(dragging);
-                          tryMove(pos);
-                          setDragging(null);
-                        }
-                      }}
-                      onDragOver={(e) => e.preventDefault()}
-                    >
-                      {cell && (
-                        <span
-                          draggable={cell.side === "red" && canHumanOperate}
-                          onDragStart={() => setDragging({ row: r, col: c })}
-                          className={`piece ${cell.side} ${deviceTier === "low" ? "simple" : ""}`}
-                        >
-                          {pieceText[`${cell.side}-${cell.type}`]}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })
-              )}
+      <main className="app-main">
+        {activeTab === "mode" && (
+          <section className="screen mode-screen">
+            <h2>选择模式</h2>
+            <div className="card-grid">{renderModeSettings()}</div>
+            <div className="primary-actions">
+              <button onClick={startGame} className="primary-btn">
+                开始对局（{modeText}）
+              </button>
+              <button onClick={() => setActiveTab("settings")}>更多设置</button>
             </div>
-          </div>
-        </div>
+          </section>
+        )}
 
-        <aside className="side-panel">
-          <h3>推荐与评估</h3>
-          <div className="recommend-line">
-            推荐：
-            {!hasStarted
-              ? "点击“开始对局”后计算推荐"
-              : battleMode === "ai-vs-ai"
-              ? "AI 对战模式已关闭人工推荐"
-              : recommendMove
-                ? `${toKey(recommendMove.from)} -> ${toKey(recommendMove.to)}`
-                : "计算中..."}
-          </div>
-          <div className="eval-bar">
-            <div className="eval-fill" style={{ width: `${evalPercent}%` }} />
-          </div>
-          <small>评估条用于显示局势倾向，推荐引擎强度高于地狱模式。</small>
-          <h3>复盘</h3>
-          <input
-            type="range"
-            min={0}
-            max={Math.max(0, replay.length - 1)}
-            value={replayStep ?? replay.length - 1}
-            onChange={(e) => setReplayStep(Number(e.target.value))}
-          />
-          <div className="replay-actions">
-            <button onClick={() => setReplayStep(null)}>回到实时局面</button>
-          </div>
-          <h3>事件面板</h3>
-          <ul className="events">
-            {events.map((line, idx) => (
-              <li key={`${line}-${idx}`}>{line}</li>
-            ))}
-          </ul>
-        </aside>
-      </section>
+        {activeTab === "battle" && (
+          <section className="screen battle-screen">
+            <div className="battle-status">
+              <span>{hasStarted ? "进行中" : "待开始"}</span>
+              <span>{state.turn === "red" ? "红方回合" : "黑方回合"}</span>
+              <span>{(remaining / 1000).toFixed(1)}s</span>
+              <span>{state.winner ? (state.winner === "draw" ? "和棋" : `${state.winner === "red" ? "红胜" : "黑胜"}`) : "对局中"}</span>
+            </div>
+            <div className="board-wrap" role="application" aria-label="中国象棋棋盘">
+              <div className="board-grid">
+                <svg className="board-svg" viewBox="0 0 800 900" aria-hidden="true">
+                  <rect x="0" y="0" width="800" height="900" className="board-border" />
+                  {Array.from({ length: 10 }).map((_, idx) => (
+                    <line key={`h-${idx}`} x1="0" y1={idx * 100} x2="800" y2={idx * 100} className="board-line" />
+                  ))}
+                  {Array.from({ length: 9 }).map((_, idx) => {
+                    const x = idx * 100;
+                    if (idx === 0 || idx === 8) {
+                      return <line key={`v-${idx}`} x1={x} y1="0" x2={x} y2="900" className="board-line" />;
+                    }
+                    return (
+                      <g key={`v-${idx}`}>
+                        <line x1={x} y1="0" x2={x} y2="400" className="board-line" />
+                        <line x1={x} y1="500" x2={x} y2="900" className="board-line" />
+                      </g>
+                    );
+                  })}
+                  <line x1="300" y1="0" x2="500" y2="200" className="board-line" />
+                  <line x1="500" y1="0" x2="300" y2="200" className="board-line" />
+                  <line x1="300" y1="700" x2="500" y2="900" className="board-line" />
+                  <line x1="500" y1="700" x2="300" y2="900" className="board-line" />
+                </svg>
+                <div className="river-text">楚 河　汉 界</div>
+                <div className="board-points">
+                  {displayBoard.map((row, r) =>
+                    row.map((cell, c) => {
+                      const pos = { row: r, col: c };
+                      const highlighted = selectedMoves.some((m) => equalPos(m, pos));
+                      const selectedCell = selected ? equalPos(selected, pos) : false;
+                      return (
+                        <button
+                          key={`${r}-${c}`}
+                          className={`point ${highlighted ? "highlight" : ""} ${selectedCell ? "selected" : ""}`}
+                          style={{ left: `${(c / 8) * 100}%`, top: `${(r / 9) * 100}%` }}
+                          aria-label={`棋位 ${r}-${c}`}
+                          onClick={() => hasStarted && onCellClick(r, c)}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            if (hasStarted && dragging) {
+                              setSelected(dragging);
+                              tryMove(pos);
+                              setDragging(null);
+                            }
+                          }}
+                          onDragOver={(e) => e.preventDefault()}
+                        >
+                          {cell && (
+                            <span
+                              draggable={cell.side === "red" && canHumanOperate}
+                              onDragStart={() => setDragging({ row: r, col: c })}
+                              className={`piece ${cell.side} ${deviceTier === "low" ? "simple" : ""}`}
+                            >
+                              {pieceText[`${cell.side}-${cell.type}`]}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="battle-actions">
+              <button onClick={startGame} disabled={hasStarted || !!state.winner}>开始</button>
+              <button onClick={resetGame}>新局</button>
+              <button onClick={applyRecommend} disabled={!recommendMove || !canHumanOperate}>推荐</button>
+              <button onClick={() => setActiveTab("settings")}>设置</button>
+            </div>
+          </section>
+        )}
+
+        {activeTab === "settings" && (
+          <section className="screen settings-screen">
+            <h2>设置</h2>
+            <div className="card-grid">{renderModeSettings()}</div>
+            <div className="primary-actions">
+              <button onClick={downloadRecord}>导出棋谱</button>
+              <label className="import-button">
+                导入棋谱
+                <input type="file" accept=".json" onChange={(e) => e.target.files?.[0] && importFromFile(e.target.files[0])} />
+              </label>
+              <button onClick={() => setReplayStep(null)}>退出复盘</button>
+            </div>
+            <div className="settings-note">
+              推荐：{!hasStarted ? "点击开始后计算" : battleMode === "ai-vs-ai" ? "AI 对战模式关闭推荐" : recommendMove ? `${toKey(recommendMove.from)} -> ${toKey(recommendMove.to)}` : "计算中..."}
+            </div>
+            <div className="settings-note">局势评估：{evalPercent.toFixed(0)} / 100</div>
+            <div className="settings-note">最近事件：{latestEvent}</div>
+          </section>
+        )}
+      </main>
+
+      <nav className="bottom-tabs">
+        <button className={activeTab === "mode" ? "active" : ""} onClick={() => setActiveTab("mode")}>模式</button>
+        <button className={activeTab === "battle" ? "active" : ""} onClick={() => setActiveTab("battle")}>对战</button>
+        <button className={activeTab === "settings" ? "active" : ""} onClick={() => setActiveTab("settings")}>设置</button>
+      </nav>
     </div>
   );
 }
