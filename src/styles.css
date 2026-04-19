@@ -142,6 +142,18 @@ select,
   font-size: 14px;
 }
 
+.auth-bind-form input {
+  border: 1px solid #b88c5a;
+  background: linear-gradient(180deg, #f9edd4, #ecd4ae);
+  color: #5d3c27;
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 1px 3px rgb(106 71 34 / 20%);
+  min-height: 40px;
+  font-size: 14px;
+  width: 100%;
+}
+
 select {
   width: 100%;
   -webkit-appearance: none;
@@ -171,6 +183,63 @@ button:disabled {
 
 .import-button input {
   display: none;
+}
+
+.auth-card {
+  border-radius: 10px;
+  border: 1px solid rgb(170 127 84 / 40%);
+  background: rgb(255 255 255 / 42%);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auth-card h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.auth-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.auth-row span {
+  color: #8b6845;
+}
+
+.auth-row strong {
+  color: #5a3a24;
+  font-weight: 600;
+  word-break: break-all;
+  text-align: right;
+}
+
+.auth-bind-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auth-bind-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.checkbox-line {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px;
+}
+
+.checkbox-line input {
+  width: auto;
+  min-height: auto;
 }
 
 .board-wrap {

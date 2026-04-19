@@ -4,6 +4,9 @@ import { createInitialState, evaluateTerminal, generateLegalMoves, isInCheck, to
 import { buildReplay, exportRecord, importRecord } from "./engine/replay";
 import { createTurnTimer, getRemainingMs, isTimeout } from "./engine/timer";
 import { logEvent, withPerf } from "./telemetry/logger";
+import { bindGuestAccount, ensureSession, getOrCreateDeviceId, getSession, refreshTokenIfNeeded, rollbackBind } from "./auth/guestAccountService";
+import { AuthError } from "./auth/types";
+import type { ProviderType, SessionSnapshot } from "./auth/types";
 
 const difficultyName: Record<Difficulty, string> = { easy: "简单", hard: "困难", hell: "地狱" };
 type BattleMode = "human-vs-ai" | "ai-vs-ai";
@@ -39,6 +42,13 @@ export default function App() {
   const [blackAiDifficulty, setBlackAiDifficulty] = useState<Difficulty>("hell");
   const [aiStepDelayMs, setAiStepDelayMs] = useState<number>(900);
   const [events, setEvents] = useState<string[]>([]);
+  const [authSession, setAuthSession] = useState<SessionSnapshot | null>(null);
+  const [bindProvider, setBindProvider] = useState<ProviderType>("phone");
+  const [bindIdentifier, setBindIdentifier] = useState("");
+  const [bindCode, setBindCode] = useState("");
+  const [bindMergeConfirmed, setBindMergeConfirmed] = useState(false);
+  const [bindLoading, setBindLoading] = useState(false);
+  const [bindMessage, setBindMessage] = useState("");
   const [timer, setTimer] = useState(() => createTurnTimer("red"));
   const [remaining, setRemaining] = useState(60_000);
   const [recommendMove, setRecommendMove] = useState<Move | null>(null);
@@ -61,6 +71,30 @@ export default function App() {
   const replay = useMemo(() => buildReplay(createInitialState().board, "red", state.history), [state.history]);
   const replayState = replayStep === null ? null : replay[replayStep];
   const displayBoard = replayState ? replayState.board : state.board;
+
+  useEffect(() => {
+    const session = ensureSession();
+    setAuthSession(session);
+    logEvent({ name: "auth_guest_session_ready", data: { guestId: session.profile.guestId, deviceId: getOrCreateDeviceId() } });
+  }, []);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const current = getSession();
+      if (!current) return;
+      try {
+        const refreshed = refreshTokenIfNeeded(current);
+        if (refreshed.token.accessToken !== current.token.accessToken) setAuthSession(refreshed);
+      } catch (error) {
+        if (error instanceof AuthError) {
+          setBindMessage(error.message);
+          const recreated = ensureSession();
+          setAuthSession(recreated);
+        }
+      }
+    }, 20_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     workerRef.current = new Worker(new URL("./engine/ai.worker.ts", import.meta.url), { type: "module" });
@@ -244,6 +278,61 @@ export default function App() {
     setTimer(createTurnTimer(state.turn));
     setEvents((x) => ["对局已开始。", ...x].slice(0, 14));
     setActiveTab("battle");
+  };
+
+  const executeBindWithRetry = (session: SessionSnapshot, mergeConfirmed: boolean) => {
+    const idempotencyKey = `bind_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let attempt = 0;
+    let rollbackSnapshot: SessionSnapshot | null = null;
+    while (attempt < 3) {
+      attempt += 1;
+      try {
+        const result = bindGuestAccount(session, {
+          provider: bindProvider,
+          identifier: bindIdentifier.trim(),
+          verifyCode: bindCode.trim(),
+          idempotencyKey,
+          mergeConfirmed
+        });
+        rollbackSnapshot = result.rollback;
+        return { session: result.session, rollbackSnapshot };
+      } catch (error) {
+        if (!(error instanceof AuthError)) throw error;
+        if (!error.retryable || attempt >= 3) throw error;
+      }
+    }
+    throw new Error("unreachable");
+  };
+
+  const onBindAccount = () => {
+    if (!authSession) return;
+    setBindLoading(true);
+    setBindMessage("");
+    try {
+      const result = executeBindWithRetry(authSession, bindMergeConfirmed);
+      setAuthSession(result.session);
+      setBindCode("");
+      setBindMessage("绑定成功，账号已升级为正式用户。");
+    } catch (error) {
+      if (error instanceof AuthError) {
+        if (error.code === "BIND_CONFLICT") {
+          setBindMessage("检测到账号冲突，请勾选“允许合并”后重试。");
+        } else {
+          setBindMessage(error.message);
+        }
+        const snapshot = getSession();
+        if (snapshot && snapshot.profile.bindingState === "guest") {
+          setAuthSession(snapshot);
+        } else if (authSession.profile.bindingState === "guest") {
+          setAuthSession(rollbackBind(authSession));
+        }
+      } else {
+        setBindMessage("绑定失败，请稍后重试。");
+        setAuthSession(rollbackBind(authSession));
+      }
+    } finally {
+      setBindLoading(false);
+    }
   };
 
   const downloadRecord = () => {
@@ -446,6 +535,48 @@ export default function App() {
           <section className="screen settings-screen">
             <h2>设置</h2>
             <div className="card-grid">{renderModeSettings()}</div>
+            <div className="auth-card">
+              <h3>账号与绑定</h3>
+              <div className="auth-row">
+                <span>设备ID</span>
+                <strong>{authSession?.profile.deviceId ?? "-"}</strong>
+              </div>
+              <div className="auth-row">
+                <span>游客ID</span>
+                <strong>{authSession?.profile.guestId ?? "-"}</strong>
+              </div>
+              <div className="auth-row">
+                <span>绑定状态</span>
+                <strong>{authSession?.profile.bindingState === "bound" ? "已绑定" : "游客态"}</strong>
+              </div>
+              {authSession?.profile.bindingState !== "bound" && (
+                <div className="auth-bind-form">
+                  <label>
+                    绑定方式
+                    <select value={bindProvider} onChange={(e) => setBindProvider(e.target.value as ProviderType)}>
+                      <option value="phone">手机号</option>
+                      <option value="wechat">微信</option>
+                    </select>
+                  </label>
+                  <label>
+                    {bindProvider === "phone" ? "手机号" : "微信标识"}
+                    <input value={bindIdentifier} onChange={(e) => setBindIdentifier(e.target.value)} placeholder={bindProvider === "phone" ? "13800138000" : "wechat_open_id"} />
+                  </label>
+                  <label>
+                    验证码
+                    <input value={bindCode} onChange={(e) => setBindCode(e.target.value)} placeholder={bindProvider === "phone" ? "6位数字验证码" : "授权校验码"} />
+                  </label>
+                  <label className="checkbox-line">
+                    <input type="checkbox" checked={bindMergeConfirmed} onChange={(e) => setBindMergeConfirmed(e.target.checked)} />
+                    允许冲突时合并账号数据
+                  </label>
+                  <button onClick={onBindAccount} disabled={bindLoading || !bindIdentifier.trim() || !bindCode.trim()}>
+                    {bindLoading ? "绑定中..." : "绑定正式账号"}
+                  </button>
+                </div>
+              )}
+              {bindMessage && <div className="settings-note">{bindMessage}</div>}
+            </div>
             <div className="primary-actions">
               <button onClick={downloadRecord}>导出棋谱</button>
               <label className="import-button">
