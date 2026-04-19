@@ -34,6 +34,7 @@ export default function App() {
   const [difficulty, setDifficulty] = useState<Difficulty>("hell");
   const [redAiDifficulty, setRedAiDifficulty] = useState<Difficulty>("hard");
   const [blackAiDifficulty, setBlackAiDifficulty] = useState<Difficulty>("hell");
+  const [aiStepDelayMs, setAiStepDelayMs] = useState<number>(900);
   const [events, setEvents] = useState<string[]>([]);
   const [timer, setTimer] = useState(() => createTurnTimer("red"));
   const [remaining, setRemaining] = useState(60_000);
@@ -44,6 +45,9 @@ export default function App() {
   const [deviceTier, setDeviceTier] = useState<"high" | "low">("high");
   const workerRef = useRef<Worker | null>(null);
   const pendingAiSideRef = useRef<Side>("black");
+  const aiThinkingRef = useRef(false);
+  const aiDispatchTimerRef = useRef<number | null>(null);
+  const repetitionRef = useRef<Map<string, number>>(new Map());
 
   const legalMoves = useMemo(() => generateLegalMoves({ board: state.board, turn: state.turn }), [state.board, state.turn]);
   const selectedMoves = useMemo(
@@ -62,11 +66,19 @@ export default function App() {
       if (payload.kind === "recommend") {
         setRecommendMove(payload.result?.move ?? null);
         setRecommendScore(payload.result?.score ?? 0);
-      } else if (payload.result?.move) {
-        commitMove(payload.result.move, pendingAiSideRef.current);
+      } else {
+        aiThinkingRef.current = false;
+        if (payload.result?.move) {
+          commitMove(payload.result.move, pendingAiSideRef.current);
+        }
       }
     };
-    return () => workerRef.current?.terminate();
+    return () => {
+      if (aiDispatchTimerRef.current !== null) {
+        window.clearTimeout(aiDispatchTimerRef.current);
+      }
+      workerRef.current?.terminate();
+    };
   }, []);
 
   useEffect(() => {
@@ -92,15 +104,39 @@ export default function App() {
     return () => window.clearInterval(id);
   }, [timer]);
 
+  const clearAiPending = () => {
+    if (aiDispatchTimerRef.current !== null) {
+      window.clearTimeout(aiDispatchTimerRef.current);
+      aiDispatchTimerRef.current = null;
+    }
+    aiThinkingRef.current = false;
+  };
+
+  useEffect(() => {
+    if (state.winner || replayStep !== null) return;
+    const fen = toFen({ board: state.board, turn: state.turn });
+    const nextMap = new Map(repetitionRef.current);
+    const count = (nextMap.get(fen) ?? 0) + 1;
+    nextMap.set(fen, count);
+    repetitionRef.current = nextMap;
+    if (count >= 3) {
+      clearAiPending();
+      setEvents((x) => ["同一局面三次重复，自动判和。", ...x].slice(0, 14));
+      setState((prev) => ({ ...prev, winner: "draw" }));
+    }
+  }, [state.board, state.turn, state.winner, replayStep]);
+
   useEffect(() => {
     if (state.winner || replayStep !== null) return;
     if (isTimeout(timer)) {
+      clearAiPending();
       setEvents((x) => [`${state.turn === "red" ? "红方" : "黑方"}超时，判负。`, ...x].slice(0, 12));
       setState((prev) => ({ ...prev, winner: state.turn === "red" ? "black" : "red" }));
       return;
     }
     const aiTurn = battleMode === "ai-vs-ai" || state.turn === "black";
     if (aiTurn) {
+      if (aiThinkingRef.current) return;
       const side = state.turn;
       const aiDifficulty =
         battleMode === "ai-vs-ai"
@@ -109,11 +145,17 @@ export default function App() {
             : blackAiDifficulty
           : difficulty;
       pendingAiSideRef.current = side;
-      workerRef.current?.postMessage({ kind: "move", board: state.board, turn: side, difficulty: aiDifficulty });
+      aiThinkingRef.current = true;
+      const delay = battleMode === "ai-vs-ai" ? aiStepDelayMs : Math.min(aiStepDelayMs, 700);
+      aiDispatchTimerRef.current = window.setTimeout(() => {
+        workerRef.current?.postMessage({ kind: "move", board: state.board, turn: side, difficulty: aiDifficulty });
+        aiDispatchTimerRef.current = null;
+      }, delay);
     } else {
+      clearAiPending();
       workerRef.current?.postMessage({ kind: "recommend", board: state.board, turn: "red", difficulty });
     }
-  }, [state.turn, state.board, state.winner, difficulty, redAiDifficulty, blackAiDifficulty, battleMode, timer, replayStep]);
+  }, [state.turn, state.board, state.winner, difficulty, redAiDifficulty, blackAiDifficulty, battleMode, timer, replayStep, aiStepDelayMs]);
 
   const pushEvent = (line: string) => setEvents((x) => [line, ...x].slice(0, 14));
   const canHumanOperate = battleMode === "human-vs-ai" && state.turn === "red" && !state.winner && replayStep === null;
@@ -168,6 +210,8 @@ export default function App() {
   };
 
   const resetGame = () => {
+    clearAiPending();
+    repetitionRef.current = new Map();
     setState(createInitialState());
     setSelected(null);
     setTimer(createTurnTimer("red"));
@@ -200,6 +244,8 @@ export default function App() {
       turn = turn === "red" ? "black" : "red";
     });
     const terminal = evaluateTerminal({ board, turn });
+    clearAiPending();
+    repetitionRef.current = new Map();
     setState({ board, turn, history: importedHistory, winner: terminal.winner, inCheck: terminal.inCheck });
     setTimer(createTurnTimer(turn));
     setReplayStep(null);
@@ -222,6 +268,8 @@ export default function App() {
             value={battleMode}
             onChange={(e) => {
               const mode = e.target.value as BattleMode;
+              clearAiPending();
+              repetitionRef.current = new Map();
               setBattleMode(mode);
               setSelected(null);
               setRecommendMove(null);
@@ -250,6 +298,16 @@ export default function App() {
         </label>
         {battleMode === "ai-vs-ai" && (
           <label>
+            步间延时
+            <select value={aiStepDelayMs} onChange={(e) => setAiStepDelayMs(Number(e.target.value))}>
+              <option value={500}>0.5 秒</option>
+              <option value={900}>0.9 秒</option>
+              <option value={1400}>1.4 秒</option>
+            </select>
+          </label>
+        )}
+        {battleMode === "ai-vs-ai" && (
+          <label>
             黑方AI
             <select value={blackAiDifficulty} onChange={(e) => setBlackAiDifficulty(e.target.value as Difficulty)}>
               <option value="easy">{difficultyName.easy}</option>
@@ -271,6 +329,7 @@ export default function App() {
 
       <section className="status-grid">
         <div>模式：{battleMode === "ai-vs-ai" ? "AI 对战" : "人机对战"}</div>
+        <div>AI 步间延时：{(aiStepDelayMs / 1000).toFixed(1)}s</div>
         <div>当前回合：{state.turn === "red" ? "红方" : "黑方"}</div>
         <div>步时倒计时：{(remaining / 1000).toFixed(1)}s / 60.0s</div>
         <div>将军状态：{state.inCheck ? `${state.inCheck === "red" ? "红方" : "黑方"}被将军` : "无"}</div>

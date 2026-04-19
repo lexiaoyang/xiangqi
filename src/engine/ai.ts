@@ -13,9 +13,9 @@ const PIECE_VALUE: Record<string, number> = {
 };
 
 export const DIFFICULTY_CONFIG: Record<Difficulty, DifficultyConfig> = {
-  easy: { depth: 2, timeMs: 500, randomness: 0.35 },
-  hard: { depth: 3, timeMs: 1200, randomness: 0.12 },
-  hell: { depth: 4, timeMs: 2500, randomness: 0.03 }
+  easy: { depth: 2, timeMs: 450, randomness: 0.35 },
+  hard: { depth: 3, timeMs: 900, randomness: 0.08 },
+  hell: { depth: 4, timeMs: 2600, randomness: 0 }
 };
 
 export const RECOMMEND_CONFIG: DifficultyConfig = { depth: 5, timeMs: 4500, randomness: 0 };
@@ -48,7 +48,8 @@ const moveKey = (move: Move) => `${move.from.row}${move.from.col}${move.to.row}$
 const maybeRandomize = (moves: EvaluatedMove[], randomness: number): EvaluatedMove[] => {
   if (randomness <= 0 || moves.length <= 1) return moves;
   const top = moves[0].score;
-  return moves.map((m) => ({ ...m, score: m.score - Math.random() * randomness * Math.abs(top || 100) }));
+  const jitterBase = Math.max(20, Math.abs(top || 100) * 0.15);
+  return moves.map((m) => ({ ...m, score: m.score - Math.random() * randomness * jitterBase }));
 };
 
 export const searchBestMove = (
