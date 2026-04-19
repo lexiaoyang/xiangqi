@@ -30,6 +30,7 @@ const equalPos = (a: Position, b: Position) => a.row === b.row && a.col === b.co
 export default function App() {
   const [state, setState] = useState<GameState>(() => createInitialState());
   const [selected, setSelected] = useState<Position | null>(null);
+  const [hasStarted, setHasStarted] = useState(false);
   const [battleMode, setBattleMode] = useState<BattleMode>("human-vs-ai");
   const [difficulty, setDifficulty] = useState<Difficulty>("hell");
   const [redAiDifficulty, setRedAiDifficulty] = useState<Difficulty>("hard");
@@ -113,7 +114,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (state.winner || replayStep !== null) return;
+    if (!hasStarted || state.winner || replayStep !== null) return;
     const fen = toFen({ board: state.board, turn: state.turn });
     const nextMap = new Map(repetitionRef.current);
     const count = (nextMap.get(fen) ?? 0) + 1;
@@ -124,10 +125,10 @@ export default function App() {
       setEvents((x) => ["同一局面三次重复，自动判和。", ...x].slice(0, 14));
       setState((prev) => ({ ...prev, winner: "draw" }));
     }
-  }, [state.board, state.turn, state.winner, replayStep]);
+  }, [state.board, state.turn, state.winner, replayStep, hasStarted]);
 
   useEffect(() => {
-    if (state.winner || replayStep !== null) return;
+    if (!hasStarted || state.winner || replayStep !== null) return;
     if (isTimeout(timer)) {
       clearAiPending();
       setEvents((x) => [`${state.turn === "red" ? "红方" : "黑方"}超时，判负。`, ...x].slice(0, 12));
@@ -155,10 +156,11 @@ export default function App() {
       clearAiPending();
       workerRef.current?.postMessage({ kind: "recommend", board: state.board, turn: "red", difficulty });
     }
-  }, [state.turn, state.board, state.winner, difficulty, redAiDifficulty, blackAiDifficulty, battleMode, timer, replayStep, aiStepDelayMs]);
+  }, [state.turn, state.board, state.winner, difficulty, redAiDifficulty, blackAiDifficulty, battleMode, timer, replayStep, aiStepDelayMs, hasStarted]);
 
   const pushEvent = (line: string) => setEvents((x) => [line, ...x].slice(0, 14));
-  const canHumanOperate = battleMode === "human-vs-ai" && state.turn === "red" && !state.winner && replayStep === null;
+  const canHumanOperate =
+    hasStarted && battleMode === "human-vs-ai" && state.turn === "red" && !state.winner && replayStep === null;
 
   const commitMove = (move: Move, actor: Side) => {
     setState((prev) =>
@@ -212,12 +214,21 @@ export default function App() {
   const resetGame = () => {
     clearAiPending();
     repetitionRef.current = new Map();
+    setHasStarted(false);
     setState(createInitialState());
     setSelected(null);
     setTimer(createTurnTimer("red"));
     setRecommendMove(null);
     setReplayStep(null);
     setEvents(["新对局开始。"]);
+  };
+
+  const startGame = () => {
+    clearAiPending();
+    repetitionRef.current = new Map();
+    setHasStarted(true);
+    setTimer(createTurnTimer(state.turn));
+    setEvents((x) => ["对局已开始。", ...x].slice(0, 14));
   };
 
   const downloadRecord = () => {
@@ -246,6 +257,7 @@ export default function App() {
     const terminal = evaluateTerminal({ board, turn });
     clearAiPending();
     repetitionRef.current = new Map();
+    setHasStarted(true);
     setState({ board, turn, history: importedHistory, winner: terminal.winner, inCheck: terminal.inCheck });
     setTimer(createTurnTimer(turn));
     setReplayStep(null);
@@ -258,7 +270,7 @@ export default function App() {
     <div className={`app ${deviceTier === "low" ? "low-tier" : ""}`}>
       <header>
         <h1>玄枢象棋</h1>
-        <p>高质量中国象棋 Web 对弈 · 简单/困难/地狱 · 每步 60 秒 · 顶级推荐</p>
+        <p>H5 中国象棋 · AI 对战/人机对战 · 三难度模式</p>
       </header>
 
       <section className="toolbar">
@@ -316,6 +328,9 @@ export default function App() {
             </select>
           </label>
         )}
+        <button onClick={startGame} disabled={hasStarted || !!state.winner}>
+          开始对局
+        </button>
         <button onClick={resetGame}>新对局</button>
         <button onClick={applyRecommend} disabled={!recommendMove || !canHumanOperate}>
           采用推荐
@@ -328,6 +343,7 @@ export default function App() {
       </section>
 
       <section className="status-grid">
+        <div>状态：{hasStarted ? "进行中" : "待开始"}</div>
         <div>模式：{battleMode === "ai-vs-ai" ? "AI 对战" : "人机对战"}</div>
         <div>AI 步间延时：{(aiStepDelayMs / 1000).toFixed(1)}s</div>
         <div>当前回合：{state.turn === "red" ? "红方" : "黑方"}</div>
@@ -374,10 +390,10 @@ export default function App() {
                       className={`point ${highlighted ? "highlight" : ""} ${selectedCell ? "selected" : ""}`}
                       style={{ left: `${(c / 8) * 100}%`, top: `${(r / 9) * 100}%` }}
                       aria-label={`棋位 ${r}-${c}`}
-                      onClick={() => onCellClick(r, c)}
+                      onClick={() => hasStarted && onCellClick(r, c)}
                       onDrop={(e) => {
                         e.preventDefault();
-                        if (dragging) {
+                        if (hasStarted && dragging) {
                           setSelected(dragging);
                           tryMove(pos);
                           setDragging(null);
@@ -406,7 +422,9 @@ export default function App() {
           <h3>推荐与评估</h3>
           <div className="recommend-line">
             推荐：
-            {battleMode === "ai-vs-ai"
+            {!hasStarted
+              ? "点击“开始对局”后计算推荐"
+              : battleMode === "ai-vs-ai"
               ? "AI 对战模式已关闭人工推荐"
               : recommendMove
                 ? `${toKey(recommendMove.from)} -> ${toKey(recommendMove.to)}`
