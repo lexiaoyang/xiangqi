@@ -69,7 +69,7 @@ export const searchBestMove = (
   let best: EvaluatedMove = { move: legal[0], score: Number.NEGATIVE_INFINITY };
 
   const negamax = (board: Board, turn: Side, depth: number, alpha: number, beta: number): number => {
-    if (Date.now() > deadline) return evaluateBoard(board, side);
+    if (Date.now() > deadline) return evaluateBoard(board, side) * (turn === side ? 1 : -1);
     const key = `${toFen({ board, turn })}:${depth}`;
     const cached = transposition.get(key);
     if (cached !== undefined) return cached;
@@ -77,7 +77,8 @@ export const searchBestMove = (
     const terminal = evaluateTerminal({ board, turn });
     if (terminal.winner) {
       if (terminal.winner === "draw") return 0;
-      return terminal.winner === side ? 900000 - (config.depth - depth) : -900000 + (config.depth - depth);
+      const mateScore = 900000 - (config.depth - depth);
+      return terminal.winner === turn ? mateScore : -mateScore;
     }
     if (depth === 0) return evaluateBoard(board, side) * (turn === side ? 1 : -1);
 

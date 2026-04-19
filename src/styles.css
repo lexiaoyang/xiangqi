@@ -1,5 +1,6 @@
 :root {
   font-family: "PingFang SC", "Microsoft YaHei", Inter, system-ui, sans-serif;
+  color-scheme: light;
   color: #5c3d26;
   background:
     radial-gradient(circle at 15% 10%, rgb(255 248 232 / 90%), transparent 38%),
@@ -59,7 +60,7 @@ p {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .screen h2 {
@@ -93,6 +94,11 @@ p {
 
 .battle-screen {
   justify-content: space-between;
+  background:
+    radial-gradient(circle at 18% 12%, rgb(148 97 50 / 32%), transparent 38%),
+    radial-gradient(circle at 78% 84%, rgb(74 46 22 / 28%), transparent 44%),
+    linear-gradient(180deg, #7b4f2a, #5d381f 58%, #4a2e1a);
+  border-color: rgb(89 55 30 / 50%);
 }
 
 .battle-status {
@@ -136,6 +142,28 @@ select,
   font-size: 14px;
 }
 
+select {
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  border-color: #a3703e;
+  background:
+    linear-gradient(180deg, #fff7e7, #f1dbb6);
+  color: #4c2f18;
+  font-weight: 600;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #8e643b 50%),
+    linear-gradient(135deg, #8e643b 50%, transparent 50%),
+    linear-gradient(180deg, #fff7e7, #f1dbb6);
+  background-position:
+    calc(100% - 16px) calc(50% - 2px),
+    calc(100% - 10px) calc(50% - 2px),
+    0 0;
+  background-size: 6px 6px, 6px 6px, 100% 100%;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+}
+
 button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -147,17 +175,17 @@ button:disabled {
 
 .board-wrap {
   position: relative;
-  padding: 8px;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #ecd8b2, #e2c99f);
+  padding: 6px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #e8c892, #c9975d);
   box-shadow:
-    inset 0 0 0 1px rgb(162 121 77 / 35%),
-    0 8px 24px rgb(120 86 45 / 22%);
+    inset 0 0 0 2px rgb(122 82 45 / 62%),
+    0 8px 18px rgb(0 0 0 / 25%);
 }
 
 .board-wrap::before,
 .board-wrap::after {
-  content: "";
+  content: none;
   position: absolute;
   left: 16px;
   right: 16px;
@@ -180,31 +208,31 @@ button:disabled {
   aspect-ratio: 8 / 9;
   margin: 0 auto;
   background:
-    radial-gradient(circle at 20% 15%, rgb(255 248 232 / 48%), transparent 34%),
-    radial-gradient(circle at 78% 82%, rgb(176 126 65 / 22%), transparent 40%),
-    linear-gradient(180deg, #f2dcb5, #dfbf90);
-  border: 2px solid rgb(143 101 54 / 72%);
-  border-radius: 8px;
+    radial-gradient(circle at 24% 20%, rgb(255 244 218 / 42%), transparent 36%),
+    radial-gradient(circle at 76% 80%, rgb(155 113 67 / 18%), transparent 42%),
+    linear-gradient(180deg, #f3ddb4, #e0bf8b);
+  border: 1.5px solid rgb(130 93 56 / 70%);
+  border-radius: 6px;
   overflow: visible;
 }
 
 .board-svg {
   position: absolute;
-  inset: 36px;
-  width: calc(100% - 72px);
-  height: calc(100% - 72px);
+  inset: 28px;
+  width: calc(100% - 56px);
+  height: calc(100% - 56px);
   pointer-events: none;
 }
 
 .board-border {
   fill: transparent;
-  stroke: rgb(140 102 63 / 92%);
-  stroke-width: 2.6;
+  stroke: rgb(128 93 57 / 92%);
+  stroke-width: 2.4;
 }
 
 .board-line {
-  stroke: rgb(140 102 63 / 90%);
-  stroke-width: 2;
+  stroke: rgb(128 93 57 / 88%);
+  stroke-width: 1.8;
 }
 
 .river-text {
@@ -212,9 +240,9 @@ button:disabled {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -52%);
-  color: rgb(138 101 64 / 86%);
-  letter-spacing: 0.46rem;
-  font-size: clamp(18px, 2.2vw, 30px);
+  color: rgb(122 87 50 / 84%);
+  letter-spacing: 0.34rem;
+  font-size: clamp(24px, 2.4vw, 34px);
   font-weight: 700;
   font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
   pointer-events: none;
@@ -222,13 +250,13 @@ button:disabled {
 
 .board-points {
   position: absolute;
-  inset: 36px;
+  inset: 28px;
 }
 
 .point {
   position: absolute;
-  width: 64px;
-  height: 64px;
+  width: 58px;
+  height: 58px;
   transform: translate(-50%, -50%);
   border: none;
   background: transparent;
@@ -271,20 +299,20 @@ button:disabled {
 }
 
 .piece {
-  width: 86%;
-  height: 86%;
+  width: 90%;
+  height: 90%;
   border-radius: 50%;
-  border: 2px solid #a06f3f;
-  margin: 5px auto 0;
+  border: 2px solid #9d6f40;
+  margin: 3px auto 0;
   display: grid;
   place-items: center;
-  font-size: clamp(20px, 2.4vw, 30px);
+  font-size: clamp(28px, 2.7vw, 38px);
   font-weight: 700;
   font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
-  background: radial-gradient(circle at 30% 24%, #fffdf6, #f2dfbe 66%, #d6b27d);
+  background: radial-gradient(circle at 28% 24%, #fff4d4, #efcf98 65%, #cb975e);
   box-shadow:
-    inset 0 0 0 1px rgb(255 255 255 / 40%),
-    0 5px 10px rgb(120 80 40 / 22%);
+    inset 0 0 0 1px rgb(255 255 255 / 35%),
+    0 6px 10px rgb(53 35 18 / 35%);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -293,11 +321,11 @@ button:disabled {
 }
 
 .piece.red {
-  color: #be3d2c;
+  color: #b14b33;
 }
 
 .piece.black {
-  color: #35507a;
+  color: #3d3a34;
 }
 
 .piece.simple {
