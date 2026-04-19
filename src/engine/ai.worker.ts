@@ -6,6 +6,7 @@ interface ComputePayload {
   board: Board;
   turn: Side;
   difficulty: Difficulty;
+  seenFens?: string[];
 }
 
 self.onmessage = (event: MessageEvent<ComputePayload>) => {
@@ -14,7 +15,8 @@ self.onmessage = (event: MessageEvent<ComputePayload>) => {
   const result = searchBestMove(
     {
       board: payload.board,
-      turn: payload.turn
+      turn: payload.turn,
+      seenFens: payload.seenFens
     },
     payload.turn,
     config

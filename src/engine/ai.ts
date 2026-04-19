@@ -53,7 +53,7 @@ const maybeRandomize = (moves: EvaluatedMove[], randomness: number): EvaluatedMo
 };
 
 export const searchBestMove = (
-  state: { board: Board; turn: Side },
+  state: { board: Board; turn: Side; seenFens?: string[] },
   side: Side,
   config: DifficultyConfig
 ): EvaluatedMove | null => {
@@ -64,34 +64,51 @@ export const searchBestMove = (
 
   const deadline = Date.now() + config.timeMs;
   const transposition = new Map<string, number>();
+  const seenFenSet = new Set(state.seenFens ?? []);
   const legal = generateLegalMoves(state);
   if (legal.length === 0) return null;
   let best: EvaluatedMove = { move: legal[0], score: Number.NEGATIVE_INFINITY };
 
-  const negamax = (board: Board, turn: Side, depth: number, alpha: number, beta: number): number => {
+  const negamax = (board: Board, turn: Side, depth: number, alpha: number, beta: number, lineFens: Set<string>): number => {
     if (Date.now() > deadline) return evaluateBoard(board, side) * (turn === side ? 1 : -1);
-    const key = `${toFen({ board, turn })}:${depth}`;
+    const fen = toFen({ board, turn });
+    if (lineFens.has(fen)) return 0;
+    lineFens.add(fen);
+    const key = `${fen}:${depth}`;
     const cached = transposition.get(key);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      lineFens.delete(fen);
+      return cached;
+    }
 
     const terminal = evaluateTerminal({ board, turn });
     if (terminal.winner) {
-      if (terminal.winner === "draw") return 0;
+      if (terminal.winner === "draw") {
+        lineFens.delete(fen);
+        return 0;
+      }
       const mateScore = 900000 - (config.depth - depth);
-      return terminal.winner === turn ? mateScore : -mateScore;
+      const terminalScore = terminal.winner === turn ? mateScore : -mateScore;
+      lineFens.delete(fen);
+      return terminalScore;
     }
-    if (depth === 0) return evaluateBoard(board, side) * (turn === side ? 1 : -1);
+    if (depth === 0) {
+      const leafScore = evaluateBoard(board, side) * (turn === side ? 1 : -1);
+      lineFens.delete(fen);
+      return leafScore;
+    }
 
     let currentBest = Number.NEGATIVE_INFINITY;
     const moves = generateLegalMoves({ board, turn });
     for (const mv of moves) {
-      const value = -negamax(applyMove(board, mv), oppositeSide(turn), depth - 1, -beta, -alpha);
+      const value = -negamax(applyMove(board, mv), oppositeSide(turn), depth - 1, -beta, -alpha, lineFens);
       currentBest = Math.max(currentBest, value);
       alpha = Math.max(alpha, value);
       if (alpha >= beta) break;
       if (Date.now() > deadline) break;
     }
     transposition.set(key, currentBest);
+    lineFens.delete(fen);
     return currentBest;
   };
 
@@ -100,8 +117,17 @@ export const searchBestMove = (
     const scored: EvaluatedMove[] = [];
     for (const move of legal) {
       const next = applyMove(state.board, move);
-      const score = -negamax(next, oppositeSide(state.turn), depth - 1, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY);
-      scored.push({ move, score });
+      const nextFen = toFen({ board: next, turn: oppositeSide(state.turn) });
+      const repeatPenalty = seenFenSet.has(nextFen) ? 120 : 0;
+      const score = -negamax(
+        next,
+        oppositeSide(state.turn),
+        depth - 1,
+        Number.NEGATIVE_INFINITY,
+        Number.POSITIVE_INFINITY,
+        new Set<string>()
+      );
+      scored.push({ move, score: score - repeatPenalty });
       if (Date.now() > deadline) break;
     }
     const randomized = maybeRandomize(scored.sort((a, b) => b.score - a.score), config.randomness);

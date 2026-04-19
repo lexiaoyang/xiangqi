@@ -151,12 +151,24 @@ export default function App() {
       aiThinkingRef.current = true;
       const delay = battleMode === "ai-vs-ai" ? aiStepDelayMs : Math.min(aiStepDelayMs, 700);
       aiDispatchTimerRef.current = window.setTimeout(() => {
-        workerRef.current?.postMessage({ kind: "move", board: state.board, turn: side, difficulty: aiDifficulty });
+        workerRef.current?.postMessage({
+          kind: "move",
+          board: state.board,
+          turn: side,
+          difficulty: aiDifficulty,
+          seenFens: Array.from(repetitionRef.current.keys())
+        });
         aiDispatchTimerRef.current = null;
       }, delay);
     } else {
       clearAiPending();
-      workerRef.current?.postMessage({ kind: "recommend", board: state.board, turn: "red", difficulty });
+      workerRef.current?.postMessage({
+        kind: "recommend",
+        board: state.board,
+        turn: "red",
+        difficulty,
+        seenFens: Array.from(repetitionRef.current.keys())
+      });
     }
   }, [state.turn, state.board, state.winner, difficulty, redAiDifficulty, blackAiDifficulty, battleMode, timer, replayStep, aiStepDelayMs, hasStarted]);
 
