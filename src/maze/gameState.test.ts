@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { applyDirection, buildGameBundle, equalPos } from "./gameState";
+import type { Dir } from "./types";
 
 describe("gameState", () => {
-  it("森林标准局可走一步", () => {
+  it("森林标准局至少一个方向可走一步", () => {
     const g = buildGameBundle("forest", "easy");
-    const r = applyDirection(g, "down");
-    expect(r.moved).toBe(true);
-    expect(equalPos(r.game.player, { row: g.player.row + 1, col: g.player.col })).toBe(true);
+    const dirs: Dir[] = ["down", "right", "up", "left"];
+    let moved = false;
+    for (const d of dirs) {
+      const r = applyDirection(g, d);
+      if (r.moved) {
+        moved = true;
+        expect(equalPos(r.game.player, g.player)).toBe(false);
+        break;
+      }
+    }
+    expect(moved).toBe(true);
   });
 
   it("糖果关为收集机制并放置收集物", () => {

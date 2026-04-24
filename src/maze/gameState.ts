@@ -1,4 +1,4 @@
-import { defaultStartGoal, isWall, mazeForDifficulty } from "./generate";
+import { defaultStartGoal, isWall, mazeForDifficultyWithRng, mulberry32 } from "./generate";
 import { sceneById, type SceneId } from "./scenes";
 import type { Dir, GameBundle, MazeDifficulty, Pos, SceneMechanic } from "./types";
 
@@ -10,10 +10,10 @@ export function equalPos(a: Pos, b: Pos): boolean {
   return a.row === b.row && a.col === b.col;
 }
 
-function shuffle<T>(arr: T[]): T[] {
+function shuffleRng<T>(arr: T[], rnd: () => number): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rnd() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
@@ -43,10 +43,10 @@ function enumeratePathCells(maze: import("./types").WallGrid, start: Pos): Pos[]
   return out;
 }
 
-function pickFarPair(pathCells: Pos[], avoid: Set<string>): { a: Pos; b: Pos } | null {
+function pickFarPair(pathCells: Pos[], avoid: Set<string>, rnd: () => number): { a: Pos; b: Pos } | null {
   const candidates = pathCells.filter((p) => !avoid.has(posKey(p)));
   if (candidates.length < 2) return null;
-  const sh = shuffle(candidates);
+  const sh = shuffleRng(candidates, rnd);
   const a = sh[0]!;
   let best: Pos | null = null;
   let bestD = -1;
@@ -73,9 +73,12 @@ function cloneBundle(g: GameBundle): GameBundle {
   };
 }
 
-export function buildGameBundle(sceneId: SceneId, difficulty: MazeDifficulty): GameBundle {
+/**
+ * @param rng 随机源；战役关卡传入 `mulberry32(seed)` 以保证复现
+ */
+export function buildGameBundle(sceneId: SceneId, difficulty: MazeDifficulty, rng: () => number = Math.random): GameBundle {
   const scene = sceneById(sceneId);
-  const maze = mazeForDifficulty(difficulty);
+  const maze = mazeForDifficultyWithRng(difficulty, rng);
   const { start, goal } = defaultStartGoal(maze);
   const pathCells = enumeratePathCells(maze, start);
   const avoid = new Set<string>([posKey(start), posKey(goal)]);
@@ -88,13 +91,19 @@ export function buildGameBundle(sceneId: SceneId, difficulty: MazeDifficulty): G
 
   if (scene.mechanic === "collect") {
     const n = Math.min(scene.collectCount ?? 4, Math.max(0, pathCells.length - avoid.size));
-    const pool = shuffle(pathCells.filter((p) => !avoid.has(posKey(p))));
+    const pool = shuffleRng(
+      pathCells.filter((p) => !avoid.has(posKey(p))),
+      rng
+    );
     for (let i = 0; i < n; i++) treatsRemaining.add(posKey(pool[i]!));
   }
 
   if (scene.mechanic === "gust") {
     const ratio = scene.gustRatio ?? 0.1;
-    const pool = shuffle(pathCells.filter((p) => !avoid.has(posKey(p)) && !treatsRemaining.has(posKey(p))));
+    const pool = shuffleRng(
+      pathCells.filter((p) => !avoid.has(posKey(p)) && !treatsRemaining.has(posKey(p))),
+      rng
+    );
     const count = Math.min(pool.length, Math.max(3, Math.floor(pathCells.length * ratio)));
     for (let i = 0; i < count; i++) {
       const p = pool[i]!;
@@ -106,7 +115,7 @@ export function buildGameBundle(sceneId: SceneId, difficulty: MazeDifficulty): G
     const treatKeys = new Set(treatsRemaining);
     const avoid2 = new Set([...avoid, ...treatKeys]);
     for (const k of gustMap.keys()) avoid2.add(k);
-    portalPair = pickFarPair(pathCells, avoid2);
+    portalPair = pickFarPair(pathCells, avoid2, rng);
   }
 
   if (portalPair) {
@@ -123,6 +132,10 @@ export function buildGameBundle(sceneId: SceneId, difficulty: MazeDifficulty): G
     gustMap,
     portalPair
   };
+}
+
+export function buildGameBundleSeeded(sceneId: SceneId, difficulty: MazeDifficulty, seed: number): GameBundle {
+  return buildGameBundle(sceneId, difficulty, mulberry32(seed >>> 0));
 }
 
 function stepDelta(dir: Dir): { dr: number; dc: number } {
