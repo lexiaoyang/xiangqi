@@ -1,12 +1,12 @@
-export type MazeDifficulty = "easy" | "medium" | "hard";
+import type { MazeDifficulty, WallGrid } from "./types";
 
-/** true 表示墙，false 表示可走 */
-export type WallGrid = boolean[][];
+export type { MazeDifficulty, WallGrid };
 
 const SIZE: Record<MazeDifficulty, [number, number]> = {
   easy: [9, 9],
   medium: [13, 11],
-  hard: [17, 15]
+  hard: [17, 15],
+  expert: [21, 19]
 };
 
 function shuffle<T>(arr: T[]): T[] {
