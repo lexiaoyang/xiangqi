@@ -1,11 +1,13 @@
 :root {
-  font-family: "PingFang SC", "Microsoft YaHei", Inter, system-ui, sans-serif;
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
   color-scheme: light;
-  color: #5c3d26;
-  background:
-    radial-gradient(circle at 15% 10%, rgb(255 248 232 / 90%), transparent 38%),
-    radial-gradient(circle at 80% 90%, rgb(237 216 180 / 70%), transparent 40%),
-    linear-gradient(180deg, #f7edd9, #efdfc3 52%, #e8d2ad);
+  --maze-bg: #e8f4ff;
+  --maze-path: #fff9e6;
+  --maze-wall: #5b7c99;
+  --maze-accent: #ff8a4c;
+  --maze-goal: #7ad67a;
+  --maze-text: #1e3a52;
+  --maze-safe-bottom: calc(12px + env(safe-area-inset-bottom));
 }
 
 * {
@@ -15,446 +17,215 @@
 body {
   margin: 0;
   min-height: 100dvh;
+  background: linear-gradient(165deg, #dff0ff 0%, #ffe8f0 100%);
+  color: var(--maze-text);
 }
 
-.app {
-  padding: 8px 10px calc(68px + env(safe-area-inset-bottom));
-  max-width: 860px;
+.maze-app {
+  max-width: 520px;
   margin: 0 auto;
   min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  overflow: hidden;
-}
-
-.app-header {
-  padding: 6px 4px 2px;
-}
-
-h1 {
-  margin: 0 0 2px 0;
-  font-weight: 700;
-  letter-spacing: 1px;
-  font-size: 22px;
-}
-
-p {
-  margin: 0;
-  color: #79563c;
-  font-size: 13px;
-}
-
-.app-main {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.screen {
-  height: 100%;
-  border-radius: 14px;
-  background: rgb(255 248 235 / 78%);
-  border: 1px solid rgb(181 140 94 / 26%);
-  padding: 10px;
+  padding: 10px 12px var(--maze-safe-bottom);
   display: flex;
   flex-direction: column;
   gap: 10px;
-  overflow-y: auto;
 }
 
-.screen h2 {
+.maze-header h1 {
+  margin: 0 0 4px 0;
+  font-size: clamp(1.35rem, 4.5vw, 1.6rem);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.maze-header p {
   margin: 0;
-  font-size: 16px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  opacity: 0.88;
 }
 
-.card-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+.maze-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
 }
 
-.card-grid label {
+.maze-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
-  color: #7b5a3d;
-}
-
-.primary-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.primary-btn {
-  grid-column: span 2;
-}
-
-.battle-screen {
-  justify-content: space-between;
-  background:
-    radial-gradient(circle at 18% 12%, rgb(148 97 50 / 32%), transparent 38%),
-    radial-gradient(circle at 78% 84%, rgb(74 46 22 / 28%), transparent 44%),
-    linear-gradient(180deg, #7b4f2a, #5d381f 58%, #4a2e1a);
-  border-color: rgb(89 55 30 / 50%);
-}
-
-.battle-status {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.battle-status span {
-  border-radius: 8px;
-  background: rgb(255 255 255 / 40%);
-  padding: 6px 8px;
-  font-size: 12px;
-}
-
-.battle-actions {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.settings-note {
-  font-size: 12px;
-  color: #6f4c31;
-  padding: 8px;
-  border-radius: 8px;
-  background: rgb(255 255 255 / 36%);
-}
-
-button,
-select,
-.import-button {
-  border: 1px solid #b88c5a;
-  background: linear-gradient(180deg, #f9edd4, #ecd4ae);
-  color: #5d3c27;
-  border-radius: 10px;
-  padding: 10px 12px;
-  cursor: pointer;
-  box-shadow: 0 1px 3px rgb(106 71 34 / 20%);
-  min-height: 40px;
-  font-size: 14px;
-}
-
-.auth-bind-form input {
-  border: 1px solid #b88c5a;
-  background: linear-gradient(180deg, #f9edd4, #ecd4ae);
-  color: #5d3c27;
-  border-radius: 10px;
-  padding: 10px 12px;
-  box-shadow: 0 1px 3px rgb(106 71 34 / 20%);
-  min-height: 40px;
-  font-size: 14px;
-  width: 100%;
-}
-
-select {
-  width: 100%;
-  -webkit-appearance: none;
-  appearance: none;
-  border-color: #a3703e;
-  background:
-    linear-gradient(180deg, #fff7e7, #f1dbb6);
-  color: #4c2f18;
+  font-size: 0.85rem;
   font-weight: 600;
-  background-image:
-    linear-gradient(45deg, transparent 50%, #8e643b 50%),
-    linear-gradient(135deg, #8e643b 50%, transparent 50%),
-    linear-gradient(180deg, #fff7e7, #f1dbb6);
-  background-position:
-    calc(100% - 16px) calc(50% - 2px),
-    calc(100% - 10px) calc(50% - 2px),
-    0 0;
-  background-size: 6px 6px, 6px 6px, 100% 100%;
-  background-repeat: no-repeat;
-  padding-right: 28px;
 }
 
-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.import-button input {
-  display: none;
-}
-
-.auth-card {
-  border-radius: 10px;
-  border: 1px solid rgb(170 127 84 / 40%);
-  background: rgb(255 255 255 / 42%);
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.auth-card h3 {
-  margin: 0;
-  font-size: 14px;
-}
-
-.auth-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.auth-row span {
-  color: #8b6845;
-}
-
-.auth-row strong {
-  color: #5a3a24;
-  font-weight: 600;
-  word-break: break-all;
-  text-align: right;
-}
-
-.auth-bind-form {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.auth-bind-form label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-}
-
-.checkbox-line {
-  flex-direction: row !important;
-  align-items: center;
-  gap: 6px;
-}
-
-.checkbox-line input {
-  width: auto;
-  min-height: auto;
-}
-
-.board-wrap {
-  position: relative;
-  padding: 6px;
+.maze-field select {
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 1rem;
   border-radius: 12px;
-  background: linear-gradient(180deg, #e8c892, #c9975d);
-  box-shadow:
-    inset 0 0 0 2px rgb(122 82 45 / 62%),
-    0 8px 18px rgb(0 0 0 / 25%);
+  border: 2px solid rgb(30 58 82 / 18%);
+  background: #fff;
+  color: inherit;
 }
 
-.board-wrap::before,
-.board-wrap::after {
-  content: none;
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  height: 10px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #b07b44, #d9b07b 30%, #aa733c 70%, #cd9b67);
-}
-
-.board-wrap::before {
-  top: 10px;
-}
-
-.board-wrap::after {
-  bottom: 10px;
-}
-
-.board-grid {
-  position: relative;
-  width: min(100%, 100%);
-  aspect-ratio: 8 / 9;
-  margin: 0 auto;
-  background:
-    radial-gradient(circle at 24% 20%, rgb(255 244 218 / 42%), transparent 36%),
-    radial-gradient(circle at 76% 80%, rgb(155 113 67 / 18%), transparent 42%),
-    linear-gradient(180deg, #f3ddb4, #e0bf8b);
-  border: 1.5px solid rgb(130 93 56 / 70%);
-  border-radius: 6px;
-  overflow: visible;
-}
-
-.board-svg {
-  position: absolute;
-  inset: 28px;
-  width: calc(100% - 56px);
-  height: calc(100% - 56px);
-  pointer-events: none;
-}
-
-.board-border {
-  fill: transparent;
-  stroke: rgb(128 93 57 / 92%);
-  stroke-width: 2.4;
-}
-
-.board-line {
-  stroke: rgb(128 93 57 / 88%);
-  stroke-width: 1.8;
-}
-
-.river-text {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -52%);
-  color: rgb(122 87 50 / 84%);
-  letter-spacing: 0.34rem;
-  font-size: clamp(24px, 2.4vw, 34px);
+.maze-stats {
+  flex: 1;
+  min-width: 0;
+  font-size: 1rem;
   font-weight: 700;
-  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
-  pointer-events: none;
+  padding: 10px 4px;
 }
 
-.board-points {
-  position: absolute;
-  inset: 28px;
-}
-
-.point {
-  position: absolute;
-  width: 58px;
-  height: 58px;
-  transform: translate(-50%, -50%);
+.maze-btn-secondary,
+.maze-btn-primary {
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 1rem;
+  font-weight: 700;
+  border-radius: 14px;
   border: none;
-  background: transparent;
-  border-radius: 50%;
-  padding: 0;
+  cursor: pointer;
+  touch-action: manipulation;
 }
 
-.point::before {
-  content: none;
+.maze-btn-secondary {
+  background: #fff;
+  color: var(--maze-text);
+  border: 2px solid rgb(30 58 82 / 22%);
 }
 
-.point::after {
-  content: none;
+.maze-btn-primary {
+  background: var(--maze-accent);
+  color: #fff;
+  width: 100%;
+  margin-top: 8px;
 }
 
-.point.highlight::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 13px;
-  height: 13px;
-  background: #cf9838;
-  box-shadow: 0 0 0 4px rgb(207 152 56 / 26%);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
+.maze-board-wrap {
+  flex: 1;
+  min-height: 0;
+  touch-action: none;
+  border-radius: 16px;
+  padding: 8px;
+  background: rgb(255 255 255 / 72%);
+  border: 2px solid rgb(255 255 255 / 90%);
+  box-shadow: 0 8px 24px rgb(30 58 82 / 12%);
 }
 
-.point.selected::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 13px;
-  height: 13px;
-  background: #9f1f1a;
-  box-shadow: 0 0 0 4px rgb(159 31 26 / 20%);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.piece {
-  width: 90%;
-  height: 90%;
-  border-radius: 50%;
-  border: 2px solid #9d6f40;
-  margin: 3px auto 0;
+.maze-grid {
   display: grid;
-  place-items: center;
-  font-size: clamp(28px, 2.7vw, 38px);
-  font-weight: 700;
-  font-family: "STKaiti", "KaiTi", "Kaiti SC", serif;
-  background: radial-gradient(circle at 28% 24%, #fff4d4, #efcf98 65%, #cb975e);
-  box-shadow:
-    inset 0 0 0 1px rgb(255 255 255 / 35%),
-    0 6px 10px rgb(53 35 18 / 35%);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  width: 100%;
+  max-height: min(52vh, 420px);
+  margin: 0 auto;
+  gap: 2px;
 }
 
-.piece:hover {
-  transform: translateY(-2px);
+.maze-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font-weight: 800;
+  font-size: clamp(0.55rem, 2.1vmin, 0.85rem);
+  user-select: none;
 }
 
-.piece.red {
-  color: #b14b33;
+.maze-wall {
+  background: var(--maze-wall);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 8%);
 }
 
-.piece.black {
-  color: #3d3a34;
+.maze-path {
+  background: var(--maze-path);
 }
 
-.piece.simple {
-  box-shadow: none;
-  transition: none;
+.maze-player-cell {
+  background: #ffd966;
+  box-shadow: inset 0 0 0 2px rgb(255 138 76 / 55%);
 }
 
-.low-tier .piece {
-  animation: none;
+.maze-goal-cell {
+  background: #c8f5c4;
 }
 
-.bottom-tabs {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.maze-player {
+  color: #c2410c;
+}
+
+.maze-goal-mark {
+  color: #166534;
+}
+
+.maze-dpad {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
-  background: rgb(245 227 195 / 96%);
-  border-top: 1px solid rgb(160 123 84 / 38%);
+  padding: 6px 0 4px;
 }
 
-.bottom-tabs button {
-  min-height: 42px;
+.maze-dpad-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(72px, 28vw) 1fr;
+  align-items: center;
+  justify-items: center;
+  gap: 8px;
 }
 
-.bottom-tabs .active {
-  background: linear-gradient(180deg, #e8c892, #d9ad73);
-  border-color: #a2733f;
+.maze-dpad-btn {
+  width: min(92px, 26vw);
+  height: min(92px, 26vw);
+  min-width: 72px;
+  min-height: 72px;
+  border-radius: 18px;
+  border: none;
+  font-size: clamp(1.4rem, 6vw, 2rem);
+  font-weight: 800;
+  background: linear-gradient(180deg, #fff 0%, #e8f2ff 100%);
+  color: var(--maze-text);
+  box-shadow: 0 4px 0 rgb(30 58 82 / 22%);
+  cursor: pointer;
+  touch-action: manipulation;
 }
 
-@media (max-width: 980px) {
-  .card-grid,
-  .primary-actions {
-    grid-template-columns: 1fr;
-  }
-
-  .primary-btn {
-    grid-column: span 1;
-  }
-
-  .battle-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .point {
-    width: 48px;
-    height: 48px;
-  }
-
-  .river-text {
-    letter-spacing: 0.26rem;
-    font-size: 18px;
-  }
+.maze-dpad-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 rgb(30 58 82 / 22%);
 }
 
-@media (min-width: 1100px) {
-  .app {
-    max-width: 980px;
-  }
+.maze-dpad-spacer,
+.maze-dpad-center {
+  width: 100%;
+  height: 8px;
+}
+
+.maze-win-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(15 40 60 / 45%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 20;
+}
+
+.maze-win-card {
+  width: min(360px, 100%);
+  background: #fff;
+  border-radius: 20px;
+  padding: 22px 20px;
+  text-align: center;
+  box-shadow: 0 16px 48px rgb(0 0 0 / 18%);
+}
+
+.maze-win-card h2 {
+  margin: 0 0 8px 0;
+  font-size: 1.35rem;
+}
+
+.maze-win-card p {
+  margin: 0 0 12px 0;
+  font-size: 1.05rem;
 }
