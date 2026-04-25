@@ -424,7 +424,7 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
                         return (
                           <div
                             key={pk}
-                            className={`maze-cell ${wall ? "maze-wall" : "maze-path"} ${here ? "maze-player-cell" : ""} ${goalHere ? "maze-goal-cell" : ""} ${treat ? "maze-treat-cell" : ""} ${gust ? "maze-gust-cell" : ""} ${portal ? "maze-portal-cell" : ""} ${fogCell ? "maze-fog-cell" : ""} ${flash ? "maze-hint-flash" : ""}`}
+                            className={`maze-cell ${wall ? "maze-wall" : "maze-path"} ${goalHere ? "maze-goal-cell" : ""} ${treat ? "maze-treat-cell" : ""} ${gust ? "maze-gust-cell" : ""} ${portal ? "maze-portal-cell" : ""} ${fogCell ? "maze-fog-cell" : ""} ${flash ? "maze-hint-flash" : ""}`}
                             aria-hidden
                           >
                             {!wall && treat && <span className="maze-treat">{scene.collectEmoji ?? "🍬"}</span>}

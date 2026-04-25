@@ -570,12 +570,9 @@ body {
 }
 
 .maze-player-cell {
-  background: var(--skin-path2);
-  box-shadow:
-    inset 0 0 0 2px rgb(251 191 36 / 78%),
-    0 0 0 1px rgb(15 23 42 / 12%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--skin-path) 84%, #ffffff), var(--skin-path2));
+  box-shadow: inset 0 0 0 1px rgb(15 23 42 / 7%);
   z-index: 2;
-  animation: maze-player-pop 0.22s ease;
 }
 
 .maze-goal-cell {
@@ -972,13 +969,26 @@ body {
 }
 
 .maze-treat-cell {
-  box-shadow: inset 0 0 0 2px rgb(255 140 180 / 45%);
+  box-shadow: none;
 }
 
 .maze-treat {
   position: absolute;
-  font-size: clamp(0.55rem, 2.2vmin, 0.85rem);
-  opacity: 0.95;
+  z-index: 4;
+  width: 78%;
+  height: 78%;
+  min-width: 18px;
+  min-height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: clamp(0.9rem, 4vmin, 1.35rem);
+  opacity: 1;
+  background:
+    radial-gradient(circle at 35% 24%, rgb(255 255 255 / 96%), rgb(255 214 236 / 82%) 42%, rgb(236 72 153 / 86%));
+  box-shadow:
+    0 4px 10px rgb(0 0 0 / 26%),
+    inset 0 1px 0 rgb(255 255 255 / 80%);
   pointer-events: none;
 }
 
@@ -1649,7 +1659,6 @@ body {
     linear-gradient(145deg, #514095, #2c245e 72%);
 }
 
-.c-play-inner .maze-player-cell,
 .c-play-inner .maze-goal-cell {
   background:
     radial-gradient(circle at 18% 18%, rgb(255 255 255 / 34%), transparent 28%),
@@ -1657,9 +1666,16 @@ body {
 }
 
 .c-play-inner .maze-player-cell {
+  background:
+    radial-gradient(circle at 28% 22%, rgb(255 255 255 / 30%), transparent 28%),
+    linear-gradient(145deg, #d8dde6 0%, #c5ccd7 50%, #aeb8c6 100%);
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 42%),
-    inset 0 -1px 0 rgb(15 23 42 / 10%);
+    inset 0 1px 0 rgb(255 255 255 / 55%),
+    inset 0 -2px 0 rgb(15 23 42 / 13%),
+    inset 1px 0 0 rgb(255 255 255 / 18%),
+    0 1px 2px rgb(0 0 0 / 16%);
+  animation: none;
+  z-index: auto;
 }
 
 .c-play-inner .maze-goal-cell {
@@ -1669,24 +1685,23 @@ body {
 }
 
 .c-play-inner .maze-player {
-  width: 76%;
-  height: 76%;
-  min-width: 18px;
-  min-height: 18px;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
   display: grid;
   place-items: center;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 35% 25%, #fff8c7, #facc15 52%, #f97316 100%);
-  box-shadow:
-    0 6px 14px rgb(0 0 0 / 28%),
-    0 0 16px rgb(250 204 21 / 34%),
-    inset 0 2px 0 rgb(255 255 255 / 70%);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .c-play-inner .maze-player-emoji {
   transform: translateY(-1px);
-  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 28%));
+  font-size: clamp(1rem, 4.2vmin, 1.45rem);
+  filter:
+    drop-shadow(0 2px 2px rgb(0 0 0 / 32%))
+    drop-shadow(0 0 3px rgb(255 255 255 / 24%));
 }
 
 .c-play-inner .maze-goal-mark {
@@ -1908,9 +1923,9 @@ body {
   box-shadow: 0 4px 0 rgb(148 163 184 / 22%);
 }
 
-.maze-fog-cell:not(.maze-player-cell):not(.maze-goal-cell) {
-  opacity: 0.28;
-  filter: saturate(0.65);
+.maze-fog-cell {
+  opacity: 1;
+  filter: none;
 }
 
 .maze-hint-flash {
