@@ -74,14 +74,6 @@ export function CampaignShell() {
     persist(next);
 
     if (r.action === "next" && r.won && playLevelId < MAX_LEVEL_ID) {
-      if (next.stamina < 1) {
-        setPlayLevelId(null);
-        setScreen("hub");
-        window.alert("体力不足，先回大厅休息一下吧");
-        return;
-      }
-      const n2 = { ...next, stamina: next.stamina - 1 };
-      persist(n2);
       setPlayLevelId(playLevelId + 1);
       setRetryKey((k) => k + 1);
       return;

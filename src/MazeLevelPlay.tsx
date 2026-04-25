@@ -47,6 +47,13 @@ export type PlayResolve = {
   durationMs: number;
 };
 
+type FinalStats = {
+  won: boolean;
+  stars: 0 | 1 | 2 | 3;
+  steps: number;
+  durationMs: number;
+};
+
 type Props = {
   spec: LevelSpec;
   save: CampaignSaveV1;
@@ -67,11 +74,19 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
   const historyRef = useRef<GameBundle[]>([]);
   const zoomRef = useRef(1);
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
+  const joystickPointerId = useRef<number | null>(null);
+  const joystickDir = useRef<Dir | null>(null);
+  const joystickRepeat = useRef<number | null>(null);
+  const joystickBase = useRef<HTMLDivElement | null>(null);
   const boardPointers = useRef(new Map<number, { x: number; y: number }>());
   const pinchBase = useRef<{ dist: number; zoom: number } | null>(null);
   const pinchUsed = useRef(false);
   const gameStartMs = useRef(Date.now());
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [joystickActive, setJoystickActive] = useState(false);
+  const [joystickOffset, setJoystickOffset] = useState({ x: 0, y: 0 });
+  const [boardPx, setBoardPx] = useState(320);
+  const [finalStats, setFinalStats] = useState<FinalStats | null>(null);
 
   const fogOn = activeObstacles.includes("fog");
   const timerOn = activeObstacles.includes("timer_pressure") && spec.timeLimitSec != null;
@@ -84,8 +99,25 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
   }, [zoom]);
 
   useEffect(() => {
+    if (won || givenUp) return;
     const id = window.setInterval(() => setElapsedMs(Date.now() - gameStartMs.current), 250);
     return () => window.clearInterval(id);
+  }, [won, givenUp]);
+
+  useEffect(() => {
+    const updateBoardPx = () => {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const reservedH = 116;
+      setBoardPx(Math.max(260, Math.floor(Math.min(vw - 20, vh - reservedH))));
+    };
+    updateBoardPx();
+    window.addEventListener("resize", updateBoardPx);
+    window.visualViewport?.addEventListener("resize", updateBoardPx);
+    return () => {
+      window.removeEventListener("resize", updateBoardPx);
+      window.visualViewport?.removeEventListener("resize", updateBoardPx);
+    };
   }, []);
 
   const pushHistory = useCallback((g: GameBundle) => {
@@ -103,12 +135,29 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
           historyRef.current.pop();
           return g;
         }
-        setSteps((s) => s + 1);
-        if (res.won) setWon(true);
+        const nextSteps = steps + 1;
+        setSteps(nextSteps);
+        if (res.won) {
+          const durationMs = Date.now() - gameStartMs.current;
+          setElapsedMs(durationMs);
+          setFinalStats({
+            won: true,
+            steps: nextSteps,
+            durationMs,
+            stars: computeStars(spec, {
+              won: true,
+              steps: nextSteps,
+              durationMs,
+              hadTimerObstacle: timerOn
+            })
+          });
+          setWon(true);
+          clearJoystickRepeat();
+        }
         return res.game;
       });
     },
-    [won, givenUp, pushHistory]
+    [won, givenUp, pushHistory, steps, spec, timerOn]
   );
 
   useEffect(() => {
@@ -129,9 +178,10 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
     return () => window.removeEventListener("keydown", onKey);
   }, [tryStep, won, givenUp]);
 
-  const finishStats = () => {
+  const finishStats = (forceWon = won): FinalStats => {
+    if (finalStats) return finalStats;
     const durationMs = Date.now() - gameStartMs.current;
-    const stars = won
+    const stars = forceWon
       ? computeStars(spec, {
           won: true,
           steps,
@@ -139,12 +189,21 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
           hadTimerObstacle: timerOn
         })
       : (0 as const);
-    return { durationMs, stars };
+    return { won: forceWon, durationMs, stars, steps };
   };
 
   const emit = (action: PlayResolve["action"]) => {
-    const { durationMs, stars } = finishStats();
-    onResolve({ action, won, stars, steps, durationMs });
+    const stats = finishStats();
+    onResolve({ action, won: stats.won, stars: stats.stars, steps: stats.steps, durationMs: stats.durationMs });
+  };
+
+  const giveUp = () => {
+    if (won || givenUp) return;
+    const durationMs = Date.now() - gameStartMs.current;
+    setElapsedMs(durationMs);
+    setFinalStats({ won: false, stars: 0, steps, durationMs });
+    setGivenUp(true);
+    clearJoystickRepeat();
   };
 
   const onBoardPointerDown = (e: React.PointerEvent) => {
@@ -196,6 +255,74 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
     setZoom((z) => clamp(z - e.deltaY * 0.0025, 0.55, 2.85));
   };
 
+  function clearJoystickRepeat() {
+    if (joystickRepeat.current != null) {
+      window.clearInterval(joystickRepeat.current);
+      joystickRepeat.current = null;
+    }
+  }
+
+  const dirFromOffset = (x: number, y: number): Dir | null => {
+    if (Math.hypot(x, y) < 10) return null;
+    if (Math.abs(x) >= Math.abs(y)) return x > 0 ? "right" : "left";
+    return y > 0 ? "down" : "up";
+  };
+
+  const onJoystickMove = (clientX: number, clientY: number) => {
+    const el = joystickBase.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const rawX = clientX - cx;
+    const rawY = clientY - cy;
+    const maxR = 30;
+    const len = Math.hypot(rawX, rawY);
+    const ratio = len > maxR ? maxR / len : 1;
+    const x = rawX * ratio;
+    const y = rawY * ratio;
+    setJoystickOffset({ x, y });
+
+    const d = dirFromOffset(x, y);
+    if (!d) {
+      joystickDir.current = null;
+      clearJoystickRepeat();
+      return;
+    }
+    if (joystickDir.current === d) return;
+    joystickDir.current = d;
+    clearJoystickRepeat();
+    tryStep(d);
+    joystickRepeat.current = window.setInterval(() => tryStep(d), 140);
+  };
+
+  const onJoystickPointerDown = (e: React.PointerEvent) => {
+    if (won || givenUp || joystickPointerId.current != null) return;
+    joystickPointerId.current = e.pointerId;
+    setJoystickActive(true);
+    joystickDir.current = null;
+    onJoystickMove(e.clientX, e.clientY);
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+
+  const onJoystickPointerMove = (e: React.PointerEvent) => {
+    if (joystickPointerId.current !== e.pointerId) return;
+    onJoystickMove(e.clientX, e.clientY);
+  };
+
+  const onJoystickPointerUp = (e: React.PointerEvent) => {
+    if (joystickPointerId.current !== e.pointerId) return;
+    joystickPointerId.current = null;
+    setJoystickActive(false);
+    setJoystickOffset({ x: 0, y: 0 });
+    joystickDir.current = null;
+    clearJoystickRepeat();
+  };
+
+  useEffect(() => {
+    return () => clearJoystickRepeat();
+  }, []);
+
   const onHint = () => {
     if (won || givenUp || hintLeft < 1) return;
     const next = nextStepTowardGoal(maze, player, goal);
@@ -220,8 +347,10 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
     portalPair && (equalPos(portalPair.a, { row: r, col: c }) || equalPos(portalPair.b, { row: r, col: c }));
 
   const collectDone = mechanic === "collect" && treatsRemaining.size === 0;
+  const collectTotal = scene.collectCount ?? 0;
 
-  const { durationMs: endMs, stars: endStars } = won || givenUp ? finishStats() : { durationMs: elapsedMs, stars: 0 as 0 | 1 | 2 | 3 };
+  const endStats = finalStats ?? (won || givenUp ? finishStats() : null);
+  const displayMs = endStats?.durationMs ?? elapsedMs;
 
   return (
     <div className="campaign-play-root">
@@ -231,31 +360,34 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
         </button>
         <div className="c-play-meta">
           <span className="c-badge">第 {spec.levelId} 关</span>
-          {timerOn && spec.timeLimitSec != null && (
-            <span className={`c-timer ${elapsedMs > spec.timeLimitSec * 1000 ? "c-timer--warn" : ""}`}>
-              {Math.floor(elapsedMs / 1000)}s / {spec.timeLimitSec}s
+          <span className="c-timer">{steps} 步</span>
+          {mechanic === "collect" && (
+            <span className={`c-collect-pill ${collectDone ? "c-collect-pill--done" : ""}`}>
+              {scene.collectEmoji ?? "🍬"} {collectTotal - treatsRemaining.size}/{collectTotal}
             </span>
           )}
-        </div>
-        <div className="c-play-tools">
-          <button type="button" className="c-tool-btn" disabled={hintLeft < 1 || won || givenUp} onClick={onHint} title="提示一步">
-            💡×{hintLeft}
-          </button>
-          <button type="button" className="c-tool-btn" disabled={undoLeft < 1 || won || givenUp || historyRef.current.length === 0} onClick={onUndo} title="撤销一步">
-            ↩×{undoLeft}
-          </button>
+          {timerOn && spec.timeLimitSec != null && (
+            <span className={`c-timer ${displayMs > spec.timeLimitSec * 1000 ? "c-timer--warn" : ""}`}>
+              {Math.floor(displayMs / 1000)}s / {spec.timeLimitSec}s
+            </span>
+          )}
         </div>
       </header>
 
       <div className="maze-app campaign-play-inner" data-theme={spec.sceneId}>
-        <p className="c-play-hint">{scene.label}</p>
         <div className="maze-board-stage">
-          <div className="maze-board-ribbon" aria-hidden>
-            <span>起点</span>
-            <span className="maze-ribbon-mid">{scene.playerEmoji}</span>
-            <span>→</span>
-            <span className="maze-ribbon-mid">{collectDone || mechanic !== "collect" ? scene.goalEmoji : "🔒"}</span>
-            <span>终点</span>
+          <div className="c-level-objective" aria-live="polite">
+            <div>
+              <span className="c-objective-kicker">LEVEL {spec.levelId}</span>
+              <strong>{scene.label}</strong>
+            </div>
+            <span className="c-objective-goal">
+              {mechanic === "collect"
+                ? collectDone
+                  ? "终点已开启"
+                  : `收集 ${collectTotal - treatsRemaining.size}/${collectTotal}`
+                : `到达 ${scene.goalEmoji}`}
+            </span>
           </div>
           <div
             className="maze-board-wrap"
@@ -267,7 +399,7 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
             role="application"
             aria-label="迷宫场地"
           >
-            <div className="maze-zoom-viewport">
+            <div className={`maze-zoom-viewport ${zoom > 1.02 ? "maze-zoom-viewport--pan" : ""}`}>
               <div className="maze-zoom-surface" style={{ transform: `scale(${zoom})`, transformOrigin: "center top" }}>
                 <div className="maze-board-inner">
                   <div
@@ -275,6 +407,7 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
                     style={{
                       gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
                       gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+                      width: boardPx,
                       aspectRatio: `${cols} / ${rows}`
                     }}
                   >
@@ -316,50 +449,33 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
               </div>
             </div>
           </div>
-          <div className="maze-zoom-bar c-zoom-inline">
-            <button type="button" className="maze-zoom-btn" aria-label="缩小" onClick={() => setZoom((z) => clamp(z - 0.12, 0.55, 2.85))}>
-              −
-            </button>
-            <span className="maze-zoom-val">{Math.round(zoom * 100)}%</span>
-            <button type="button" className="maze-zoom-btn" aria-label="放大" onClick={() => setZoom((z) => clamp(z + 0.12, 0.55, 2.85))}>
-              +
-            </button>
-          </div>
         </div>
+      </div>
 
-        <div className="maze-dpad-panel">
-          <div className="maze-dpad" aria-label="方向">
-            <div className="maze-dpad-row">
-              <span className="maze-dpad-spacer" />
-              <button type="button" className="maze-dpad-btn" onClick={() => tryStep("up")}>
-                ↑
-              </button>
-              <span className="maze-dpad-spacer" />
-            </div>
-            <div className="maze-dpad-row">
-              <button type="button" className="maze-dpad-btn" onClick={() => tryStep("left")}>
-                ←
-              </button>
-              <span className="maze-dpad-center" />
-              <button type="button" className="maze-dpad-btn" onClick={() => tryStep("right")}>
-                →
-              </button>
-            </div>
-            <div className="maze-dpad-row">
-              <span className="maze-dpad-spacer" />
-              <button type="button" className="maze-dpad-btn" onClick={() => tryStep("down")}>
-                ↓
-              </button>
-              <span className="maze-dpad-spacer" />
-            </div>
-          </div>
-        </div>
-
-        <div className="c-play-footer">
-          <button type="button" className="maze-btn-secondary" onClick={() => setGivenUp(true)}>
-            放弃本关
-          </button>
-        </div>
+      <div className="c-action-stack" aria-label="对局操作">
+        <button type="button" className="c-action-btn c-action-btn--skill" disabled={hintLeft < 1 || won || givenUp} onClick={onHint} title="提示一步">
+          <span>💡</span>
+          <small>{hintLeft}</small>
+        </button>
+        <button
+          type="button"
+          className="c-action-btn c-action-btn--skill"
+          disabled={undoLeft < 1 || won || givenUp || historyRef.current.length === 0}
+          onClick={onUndo}
+          title="撤销一步"
+        >
+          <span>↩</span>
+          <small>{undoLeft}</small>
+        </button>
+        <button type="button" className="c-action-btn" aria-label="放大" onClick={() => setZoom((z) => clamp(z + 0.12, 0.55, 2.85))}>
+          +
+        </button>
+        <button type="button" className="c-action-btn" aria-label="缩小" onClick={() => setZoom((z) => clamp(z - 0.12, 0.55, 2.85))}>
+          −
+        </button>
+        <button type="button" className="c-action-btn c-action-btn--danger" onClick={giveUp} aria-label="放弃本关">
+          ×
+        </button>
       </div>
 
       {(won || givenUp) && (
@@ -367,16 +483,16 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
           <div className="c-result-card">
             <h2 className="c-result-title">{won ? "闯关成功！" : "再试一次"}</h2>
             {won && (
-              <div className="c-stars-row" aria-label={`${endStars} 星`}>
+              <div className="c-stars-row" aria-label={`${endStats?.stars ?? 0} 星`}>
                 {[1, 2, 3].map((i) => (
-                  <span key={i} className={`c-star ${i <= endStars ? "c-star--on" : ""}`}>
+                  <span key={i} className={`c-star ${i <= (endStats?.stars ?? 0) ? "c-star--on" : ""}`}>
                     ★
                   </span>
                 ))}
               </div>
             )}
             <p className="c-result-sub">
-              {steps} 步 · {(endMs / 1000).toFixed(1)} 秒
+              {endStats?.steps ?? steps} 步 · {((endStats?.durationMs ?? displayMs) / 1000).toFixed(1)} 秒
             </p>
             <div className="c-result-actions">
               {won && spec.levelId < 1000 && (
@@ -394,6 +510,26 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
           </div>
         </div>
       )}
+
+      <div className={`c-joystick-wrap ${joystickActive ? "c-joystick-wrap--active" : ""}`}>
+        <div
+          className="c-joystick-base"
+          ref={joystickBase}
+          onPointerDown={onJoystickPointerDown}
+          onPointerMove={onJoystickPointerMove}
+          onPointerUp={onJoystickPointerUp}
+          onPointerCancel={onJoystickPointerUp}
+          aria-label="方向摇杆"
+          role="application"
+        >
+          <div
+            className="c-joystick-thumb"
+            style={{
+              transform: `translate(calc(-50% + ${joystickOffset.x}px), calc(-50% + ${joystickOffset.y}px))`
+            }}
+          />
+        </div>
+      </div>
     </div>
   );
 }

@@ -7,9 +7,9 @@ import type { LevelSpec, ObstacleId } from "./types";
 const SCENE_ORDER: SceneId[] = SCENES.map((s) => s.id);
 
 function difficultyForLevel(levelId: number): MazeDifficulty {
-  if (levelId <= 150) return "easy";
-  if (levelId <= 400) return "medium";
-  if (levelId <= 799) return "hard";
+  if (levelId <= 8) return "easy";
+  if (levelId <= 70) return "medium";
+  if (levelId <= 320) return "hard";
   return "expert";
 }
 
@@ -25,23 +25,23 @@ export function layoutSeedForLevel(levelId: number): number {
 
 function obstaclesForLevel(levelId: number): ObstacleId[] {
   const out: ObstacleId[] = [];
-  if (levelId >= 10) out.push("fog");
-  if (levelId >= 25) out.push("timer_pressure");
+  if (levelId >= 8) out.push("fog");
+  if (levelId >= 18) out.push("timer_pressure");
   return out;
 }
 
 function starStepPar(levelId: number, difficulty: MazeDifficulty): [number, number, number] {
   const base =
-    difficulty === "easy" ? 80 : difficulty === "medium" ? 140 : difficulty === "hard" ? 220 : 320;
+    difficulty === "easy" ? 48 : difficulty === "medium" ? 92 : difficulty === "hard" ? 150 : 220;
   const scale = 1 + (levelId / MAX_LEVEL_ID) * 0.35;
   const b = Math.round(base * scale);
   return [Math.round(b * 0.55), Math.round(b * 0.75), b];
 }
 
 function timeLimitFor(levelId: number, difficulty: MazeDifficulty): number | null {
-  if (levelId < 25) return null;
-  const base = difficulty === "easy" ? 120 : difficulty === "medium" ? 180 : difficulty === "hard" ? 240 : 300;
-  return Math.round(base + levelId * 0.15);
+  if (levelId < 18) return null;
+  const base = difficulty === "easy" ? 70 : difficulty === "medium" ? 110 : difficulty === "hard" ? 165 : 230;
+  return Math.round(base + levelId * 0.08);
 }
 
 export function getLevelSpec(levelId: number): LevelSpec {

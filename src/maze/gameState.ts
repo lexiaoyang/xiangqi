@@ -19,7 +19,7 @@ function shuffleRng<T>(arr: T[], rnd: () => number): T[] {
   return a;
 }
 
-function enumeratePathCells(maze: import("./types").WallGrid, start: Pos): Pos[] {
+function enumeratePathCells(maze: import("./types").WallGrid, start: Pos, blocked: Set<string> = new Set()): Pos[] {
   const vis = new Set<string>();
   const out: Pos[] = [];
   const q: Pos[] = [start];
@@ -35,12 +35,36 @@ function enumeratePathCells(maze: import("./types").WallGrid, start: Pos): Pos[]
       const nc = cur.col + dc;
       if (isWall(maze, nr, nc)) continue;
       const k = `${nr}-${nc}`;
+      if (blocked.has(k)) continue;
       if (vis.has(k)) continue;
       vis.add(k);
       q.push({ row: nr, col: nc });
     }
   }
   return out;
+}
+
+function pathKeysToGoal(maze: import("./types").WallGrid, start: Pos, goal: Pos): Set<string> {
+  const q: Array<{ p: Pos; path: Pos[] }> = [{ p: start, path: [start] }];
+  const vis = new Set<string>([posKey(start)]);
+  const dirs: Dir[] = ["up", "down", "left", "right"];
+
+  while (q.length) {
+    const cur = q.shift()!;
+    if (equalPos(cur.p, goal)) return new Set(cur.path.map(posKey));
+    for (const d of dirs) {
+      const dr = d === "up" ? -1 : d === "down" ? 1 : 0;
+      const dc = d === "left" ? -1 : d === "right" ? 1 : 0;
+      const next = { row: cur.p.row + dr, col: cur.p.col + dc };
+      if (isWall(maze, next.row, next.col)) continue;
+      const k = posKey(next);
+      if (vis.has(k)) continue;
+      vis.add(k);
+      q.push({ p: next, path: [...cur.path, next] });
+    }
+  }
+
+  return new Set([posKey(start), posKey(goal)]);
 }
 
 function pickFarPair(pathCells: Pos[], avoid: Set<string>, rnd: () => number): { a: Pos; b: Pos } | null {
@@ -81,6 +105,8 @@ export function buildGameBundle(sceneId: SceneId, difficulty: MazeDifficulty, rn
   const maze = mazeForDifficultyWithRng(difficulty, rng);
   const { start, goal } = defaultStartGoal(maze);
   const pathCells = enumeratePathCells(maze, start);
+  const cellsBeforeLockedGoal = enumeratePathCells(maze, start, new Set([posKey(goal)]));
+  const mainPathKeys = pathKeysToGoal(maze, start, goal);
   const avoid = new Set<string>([posKey(start), posKey(goal)]);
 
   const treatsRemaining = new Set<string>();
@@ -90,9 +116,9 @@ export function buildGameBundle(sceneId: SceneId, difficulty: MazeDifficulty, rn
   const dirs: Dir[] = ["up", "down", "left", "right"];
 
   if (scene.mechanic === "collect") {
-    const n = Math.min(scene.collectCount ?? 4, Math.max(0, pathCells.length - avoid.size));
+    const n = Math.min(scene.collectCount ?? 4, Math.max(0, cellsBeforeLockedGoal.length - 1));
     const pool = shuffleRng(
-      pathCells.filter((p) => !avoid.has(posKey(p))),
+      cellsBeforeLockedGoal.filter((p) => !avoid.has(posKey(p))),
       rng
     );
     for (let i = 0; i < n; i++) treatsRemaining.add(posKey(pool[i]!));
@@ -101,7 +127,7 @@ export function buildGameBundle(sceneId: SceneId, difficulty: MazeDifficulty, rn
   if (scene.mechanic === "gust") {
     const ratio = scene.gustRatio ?? 0.1;
     const pool = shuffleRng(
-      pathCells.filter((p) => !avoid.has(posKey(p)) && !treatsRemaining.has(posKey(p))),
+      pathCells.filter((p) => !avoid.has(posKey(p)) && !treatsRemaining.has(posKey(p)) && !mainPathKeys.has(posKey(p))),
       rng
     );
     const count = Math.min(pool.length, Math.max(3, Math.floor(pathCells.length * ratio)));
@@ -175,6 +201,7 @@ export function applyDirection(game: GameBundle, dir: Dir): StepResult {
     if (!gust) break;
     const chain = stepOnce(g, gust);
     if (!chain.moved) break;
+    g = chain.game;
     won = isWinState(g);
     depth += 1;
   }

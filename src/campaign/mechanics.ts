@@ -1,13 +1,13 @@
 import type { ObstacleId, ToolId } from "./types";
 
 export const OBSTACLE_META: Record<ObstacleId, { name: string; unlockAtLevel: number }> = {
-  fog: { name: "迷雾", unlockAtLevel: 10 },
-  timer_pressure: { name: "限时压力", unlockAtLevel: 25 }
+  fog: { name: "迷雾", unlockAtLevel: 8 },
+  timer_pressure: { name: "限时压力", unlockAtLevel: 18 }
 };
 
 export const TOOL_META: Record<ToolId, { name: string; unlockAtLevel: number; defaultCharges: number }> = {
-  hint: { name: "提示一步", unlockAtLevel: 15, defaultCharges: 1 },
-  undo: { name: "撤销", unlockAtLevel: 30, defaultCharges: 2 }
+  hint: { name: "提示一步", unlockAtLevel: 12, defaultCharges: 1 },
+  undo: { name: "撤销", unlockAtLevel: 24, defaultCharges: 2 }
 };
 
 export function obstacleUnlockedForPlayer(ob: ObstacleId, maxUnlockedLevel: number): boolean {
