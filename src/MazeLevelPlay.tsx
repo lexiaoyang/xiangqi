@@ -59,9 +59,13 @@ type Props = {
   save: CampaignSaveV1;
   activeObstacles: ObstacleId[];
   onResolve: (r: PlayResolve) => void;
+  bonusHintCharges?: number;
+  onHintShortage?: () => void;
+  postLevelOfferLabel?: string;
+  onPostLevelOffer?: () => void;
 };
 
-export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props) {
+export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, bonusHintCharges = 0, onHintShortage, postLevelOfferLabel, onPostLevelOffer }: Props) {
   const scene = sceneById(spec.sceneId);
   const [game, setGame] = useState<GameBundle>(() => buildGameBundleSeeded(spec.sceneId, spec.difficulty, spec.layoutSeed));
   const [steps, setSteps] = useState(0);
@@ -69,7 +73,7 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
   const [givenUp, setGivenUp] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [hintFlash, setHintFlash] = useState<Pos | null>(null);
-  const [hintLeft, setHintLeft] = useState(() => (save.toolsUnlocked.hint ? TOOL_META.hint.defaultCharges : 0));
+  const [hintLeft, setHintLeft] = useState(() => (save.toolsUnlocked.hint ? TOOL_META.hint.defaultCharges : 0) + bonusHintCharges);
   const [undoLeft, setUndoLeft] = useState(() => (save.toolsUnlocked.undo ? TOOL_META.undo.defaultCharges : 0));
   const historyRef = useRef<GameBundle[]>([]);
   const zoomRef = useRef(1);
@@ -324,7 +328,11 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
   }, []);
 
   const onHint = () => {
-    if (won || givenUp || hintLeft < 1) return;
+    if (won || givenUp) return;
+    if (hintLeft < 1) {
+      onHintShortage?.();
+      return;
+    }
     const next = nextStepTowardGoal(maze, player, goal);
     if (!next) return;
     setHintLeft((n) => n - 1);
@@ -453,7 +461,7 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
       </div>
 
       <div className="c-action-stack" aria-label="对局操作">
-        <button type="button" className="c-action-btn c-action-btn--skill" disabled={hintLeft < 1 || won || givenUp} onClick={onHint} title="提示一步">
+        <button type="button" className="c-action-btn c-action-btn--skill" disabled={won || givenUp} onClick={onHint} title={hintLeft < 1 ? "看广告得提示" : "提示一步"}>
           <span>💡</span>
           <small>{hintLeft}</small>
         </button>
@@ -495,6 +503,11 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve }: Props)
               {endStats?.steps ?? steps} 步 · {((endStats?.durationMs ?? displayMs) / 1000).toFixed(1)} 秒
             </p>
             <div className="c-result-actions">
+              {won && postLevelOfferLabel && onPostLevelOffer && (
+                <button type="button" className="maze-btn-primary maze-btn-ad" onClick={onPostLevelOffer}>
+                  {postLevelOfferLabel}
+                </button>
+              )}
               {won && spec.levelId < 1000 && (
                 <button type="button" className="maze-btn-primary" onClick={() => emit("next")}>
                   下一关
