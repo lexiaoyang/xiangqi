@@ -196,7 +196,7 @@ export type AdShowResult = {
   errorCode?: string;
 };
 
-export type AudioContextKey = "lobby" | "activity" | "shop" | "rewards" | "gameplay";
+export type AudioContextKey = "home" | "lobby" | "activity" | "shop" | "rewards" | "gameplay";
 export type AudioCueId = "tap" | "reward_claim" | "purchase_success" | "ad_start" | "ad_complete" | "popup_open" | "failure";
 
 export type AudioSettings = {

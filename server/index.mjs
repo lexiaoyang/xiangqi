@@ -39,7 +39,7 @@ function defaultPlatformState() {
       audio: {
         enabled: true,
         defaultVolume: 0.42,
-        bgm: { lobby: "lobby_synth", activity: "activity_synth", shop: "shop_synth", rewards: "reward_synth", gameplay: "gameplay_synth" },
+        bgm: { home: "home_lobby_synth", lobby: "lobby_synth", activity: "activity_synth", shop: "shop_synth", rewards: "reward_synth", gameplay: "gameplay_synth" },
         sfx: { tap: "tap_blip", reward_claim: "reward_chime", purchase_success: "purchase_fanfare", ad_start: "ad_start", ad_complete: "ad_complete", popup_open: "popup_open", failure: "failure_buzz" }
       },
       events: [

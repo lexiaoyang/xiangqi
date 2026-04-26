@@ -89,6 +89,7 @@ export const DEFAULT_REMOTE_CONFIG: RemoteConfig = {
     enabled: true,
     defaultVolume: 0.42,
     bgm: {
+      home: "home_lobby_synth",
       lobby: "lobby_synth",
       activity: "activity_synth",
       shop: "shop_synth",

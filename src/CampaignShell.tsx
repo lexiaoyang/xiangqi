@@ -57,8 +57,8 @@ export function CampaignShell() {
   }, [audioSettings]);
 
   useEffect(() => {
-    const context = screen === "activity" ? "activity" : screen === "shop" ? "shop" : screen === "rewards" ? "rewards" : screen === "play" ? "gameplay" : "lobby";
-    audioRef.current?.playBgm(context);
+    const context = screen === "activity" ? "activity" : screen === "shop" ? "shop" : screen === "rewards" ? "rewards" : screen === "play" ? "gameplay" : "home";
+    audioRef.current?.playBgm(context, { homeLayer: screen === "hub" });
   }, [screen]);
 
   useEffect(() => {

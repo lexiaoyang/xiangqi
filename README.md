@@ -88,8 +88,10 @@ Mock 数据持久化在 `server/data/platform.json`，该目录不应提交真�
 
 ## 音频、活动与广告 Offer
 
-- 音频首期使用 Web Audio 合成 fallback，避免引入未授权素材；真实音频资源接入时只需替换 `RemoteConfig.audio.bgm/sfx` 的 track/cue 映射。
+- 音频首期使用 Web Audio 生成约 1 分钟欢快顺耳循环 BGM，包含柔和鼓点、圆润低频、明亮和弦、轻 hook、build 和循环尾巴，避免引入未授权素材；真实音频资源接入时只需替换 `RemoteConfig.audio.bgm/sfx` 的 track/cue 映射。
 - 浏览器禁止自动播放时，`AudioManager` 会在首次用户手势后解锁；静音用户不影响闯关、广告或奖励领取。
+- 首页额外播放约 1 分钟低音量循环音效层，用于增加大厅活跃氛围；离开首页后自动停止。
+- BGM 与 SFX 分离：背景音乐和首页氛围作为连续 looping buffer 播放，按钮、领奖、购买成功、广告完成等短音只通过 SFX 通道触发。
 - 活动配置包含 `events[].tasks/rewards/cta`，任务支持闯关、星数、广告、奖励领取、商店访问、购买和登录。
 - 首页弹窗由 `homePopups` 按优先级和频控展示，支持“今日不再提示”，广告弹窗必须展示“看广告”和准确奖励。
 - 广告 offer 由 `rewardedAdOffers` 驱动，首页固定露出“看广告领体力”和“看广告得提示”，体力/提示不足时也会打开确认面板。
