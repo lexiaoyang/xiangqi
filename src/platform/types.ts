@@ -389,9 +389,12 @@ export type AuditEvent = {
 
 export type AnalyticsEvent = {
   name: string;
+  source: "client" | "page" | "economy" | "audio" | "popup" | "ad" | "reward" | "commerce" | "event" | string;
   userId?: PlatformId;
   deviceId?: PlatformId;
+  sessionId?: PlatformId;
   configVersion?: string;
+  page?: string;
   data: Record<string, string | number | boolean | null | undefined>;
   createdAt: ISODateString;
 };

@@ -1,7 +1,7 @@
 import { createRequestId, err, ok, type ApiResult } from "./api";
 import { isModuleEnabled } from "./config";
-import { mockPlatformProviders } from "./mockProviders";
 import type { PlatformProviders } from "./providers";
+import { runtimePlatformProviders } from "./runtimeProviders";
 import { PLATFORM_STORAGE_KEYS, readCache, readConsentCache, writeCache, writeConsentCache } from "./storage";
 import type { AuditEvent, ConsentState, RemoteConfig, UserSession } from "./types";
 
@@ -91,7 +91,7 @@ export function exportUserData(session: UserSession, consent = readConsentCache(
 export async function updateConsentState(
   session: UserSession | null,
   consent: ConsentState,
-  providers: PlatformProviders = mockPlatformProviders
+  providers: PlatformProviders = runtimePlatformProviders
 ): Promise<ApiResult<ConsentState>> {
   auditCommercialEvent({
     type: "consent_changed",

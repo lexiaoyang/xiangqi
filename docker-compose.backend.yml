@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: xiangqi-platform-postgres
+    environment:
+      POSTGRES_USER: xiangqi
+      POSTGRES_PASSWORD: xiangqi
+      POSTGRES_DB: xiangqi
+    ports:
+      - "54329:5432"
+    volumes:
+      - xiangqi_platform_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xiangqi -d xiangqi"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: xiangqi-platform-redis
+    ports:
+      - "63799:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - xiangqi_platform_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  xiangqi_platform_pg:
+  xiangqi_platform_redis:

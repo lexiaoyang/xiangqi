@@ -1,7 +1,7 @@
 import { createRequestId, type ApiResult } from "./api";
 import { DEFAULT_REMOTE_CONFIG, isModuleEnabled, validateRemoteConfig } from "./config";
-import { mockPlatformProviders } from "./mockProviders";
 import type { PlatformProviders } from "./providers";
+import { runtimePlatformProviders } from "./runtimeProviders";
 import { PLATFORM_STORAGE_KEYS, readCache, writeCache } from "./storage";
 import type { AnalyticsEvent, ExperimentAssignment, RemoteConfig, SegmentRule, UserSession } from "./types";
 
@@ -21,17 +21,20 @@ export function buildAnalyticsEvent(
   config: RemoteConfig,
   data: Record<string, unknown>
 ): AnalyticsEvent {
+  const page = typeof window === "undefined" ? undefined : `${window.location.pathname}${window.location.hash}`;
   return {
     name,
+    source: "client",
     userId: session?.profile.userId,
     deviceId: session?.device.deviceId,
     configVersion: config.version,
+    page,
     data: safeAnalyticsData(data),
     createdAt: new Date().toISOString()
   };
 }
 
-export async function loadLiveConfig(session: UserSession | null, providers: PlatformProviders = mockPlatformProviders): Promise<ApiResult<RemoteConfig>> {
+export async function loadLiveConfig(session: UserSession | null, providers: PlatformProviders = runtimePlatformProviders): Promise<ApiResult<RemoteConfig>> {
   const result = await providers.config.getConfig(session);
   if (!result.ok) {
     writeCache(PLATFORM_STORAGE_KEYS.config, DEFAULT_REMOTE_CONFIG);
@@ -61,7 +64,7 @@ export function evaluateSegment(rule: SegmentRule, context: Record<string, strin
 export async function stableExperimentAssignment(
   session: UserSession,
   experimentId: string,
-  providers: PlatformProviders = mockPlatformProviders
+  providers: PlatformProviders = runtimePlatformProviders
 ): Promise<ApiResult<ExperimentAssignment | null>> {
   const key = `platform:experiment:${session.profile.userId}:${experimentId}`;
   const cached = readCache<ExperimentAssignment | null>(key, null);
@@ -80,10 +83,14 @@ export async function trackEvent(
   session: UserSession | null,
   config: RemoteConfig,
   data: Record<string, unknown>,
-  providers: PlatformProviders = mockPlatformProviders
+  providers: PlatformProviders = runtimePlatformProviders
 ): Promise<ApiResult<void>> {
   if (!isModuleEnabled(config, "analytics")) return { ok: true, data: undefined, requestId: createRequestId("analytics-disabled") };
   return providers.analytics.track(buildAnalyticsEvent(name, session, config, data));
+}
+
+export async function flushAnalytics(providers: PlatformProviders = runtimePlatformProviders): Promise<ApiResult<number>> {
+  return providers.analytics.flush({ requestId: createRequestId("analytics-flush") });
 }
 
 export function dashboardMetrics(events: AnalyticsEvent[]) {

@@ -377,7 +377,7 @@ export class AudioManager {
 
   private trackAudio(name: string, data: AnalyticsEvent["data"]): void {
     const queue = JSON.parse(localStorage.getItem(PLATFORM_STORAGE_KEYS.analyticsQueue) ?? "[]") as AnalyticsEvent[];
-    writeCache(PLATFORM_STORAGE_KEYS.analyticsQueue, [...queue, { name, data, createdAt: new Date().toISOString() }]);
+    writeCache(PLATFORM_STORAGE_KEYS.analyticsQueue, [...queue, { name, source: "audio", data, createdAt: new Date().toISOString() }]);
   }
 }
 

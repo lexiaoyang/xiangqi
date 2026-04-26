@@ -12,6 +12,7 @@ import { acceptPrivacy, defaultConsent, revokeOptionalConsent, updateConsentStat
 import { DEFAULT_REMOTE_CONFIG } from "./platform/config";
 import { claimEventTaskReward, eventTimeLeftLabel, ingestEventProgress, loadEventCenter } from "./platform/events";
 import { loadLiveConfig, trackEvent } from "./platform/liveops";
+import { usePageAnalytics } from "./platform/pageAnalytics";
 import { closePopup, popupRewardText, recordPopupImpression, selectHomePopup, suppressPopupToday } from "./platform/popups";
 import { claimRewardCenterItem, ingestRewardProgress, loadRewardCenter, rewardKindLabel, rewardStateLabel } from "./platform/rewards";
 import type { AudioSettings, ConsentState, EventCenterSnapshot, HomePopupConfig, LiveEventDefinition, ProductCatalog, RemoteConfig, RewardCenterSnapshot, RewardedAdOffer, UserSession } from "./platform/types";
@@ -39,6 +40,7 @@ export function CampaignShell() {
   const [toast, setToast] = useState<string | null>(null);
   const audioRef = useRef<AudioManager | null>(null);
   const accountSummary = summarizeAccount(platformSession);
+  usePageAnalytics({ screen, session: platformSession, config: liveConfig });
 
   const persist = useCallback((next: CampaignSaveV1) => {
     const merged = applyToolUnlocksFromProgress(regenStamina(next));
@@ -100,8 +102,17 @@ export function CampaignShell() {
     audioRef.current?.playSfx("tap");
   };
 
+  const trackCampaign = useCallback(
+    (name: string, data: Record<string, unknown> = {}) => {
+      if (!platformSession) return;
+      void trackEvent(name, platformSession, liveConfig, { screen, ...data });
+    },
+    [liveConfig, platformSession, screen]
+  );
+
   const goScreen = (next: Screen) => {
     playTap();
+    trackCampaign("screen_change", { from: screen, to: next });
     setScreen(next);
   };
 
@@ -115,6 +126,7 @@ export function CampaignShell() {
 
   const startLevel = (levelId: number) => {
     if (save.stamina < 1) {
+      trackCampaign("level_start_blocked", { levelId, reason: "stamina_shortage" });
       const offer = offersForSurface(liveConfig, "home").find((item) => item.id === "stamina_home");
       if (offer) {
         setAdPreviewOffer(offer);
@@ -125,6 +137,7 @@ export function CampaignShell() {
       return;
     }
     playTap();
+    trackCampaign("level_start", { levelId, staminaBefore: save.stamina });
     const next = { ...save, stamina: save.stamina - 1, lastStaminaTs: Date.now() };
     persist(next);
     setPlayLevelId(levelId);
@@ -141,9 +154,18 @@ export function CampaignShell() {
   const onPlayResolve = (r: PlayResolve) => {
     if (!playLevelId || !activeSpec) return;
     let next = { ...save };
+    trackCampaign("level_resolve", {
+      levelId: playLevelId,
+      action: r.action,
+      won: r.won,
+      stars: r.stars,
+      steps: r.steps,
+      durationMs: r.durationMs
+    });
 
     if (r.action === "retry") {
       if (next.stamina < 1) {
+        trackCampaign("level_retry_blocked", { levelId: playLevelId, reason: "stamina_shortage" });
         window.alert("体力不足");
         return;
       }
@@ -191,6 +213,7 @@ export function CampaignShell() {
   const buyMock = async (skuId: string) => {
     const sku = catalog.skus.find((item) => item.id === skuId);
     if (!sku) return;
+    trackCampaign("purchase_intent", { skuId, priceLabel: sku.priceLabel });
     setShopConfirm(sku.title);
     if (!platformSession) {
       window.alert("账号初始化中，请稍后再试");
@@ -198,11 +221,13 @@ export function CampaignShell() {
       return;
     }
     if (!window.confirm(`购买「${sku.title}」？\n价格：${sku.priceLabel}\n内容：${sku.contents.map((item) => `${item.kind}×${item.amount}`).join("、")}`)) {
+      trackCampaign("purchase_cancelled", { skuId });
       setShopConfirm(null);
       return;
     }
     const result = await runMockPurchase(platformSession, sku.id);
     if (!result.ok) {
+      trackCampaign("purchase_failed", { skuId, errorCode: result.error.code });
       window.alert(result.error.message);
       setShopConfirm(null);
       return;
@@ -214,12 +239,14 @@ export function CampaignShell() {
     }
     persist(nextSave);
     audioRef.current?.playSfx("purchase_success");
+    trackCampaign("purchase_success", { skuId, amount: sku.amount, currency: sku.currency });
     setPlatformSyncText("钱包资产已入账");
     setShopConfirm(null);
   };
 
   const bindAccountMock = async () => {
     if (!platformSession) return;
+    trackCampaign("account_bind_start");
     const result = await bindPlatformAccount(platformSession, {
       provider: "phone",
       identifier: `1380000${String(save.maxUnlockedLevel).padStart(4, "0")}`,
@@ -227,11 +254,13 @@ export function CampaignShell() {
       mergeConfirmed: false
     });
     if (!result.ok) {
+      trackCampaign("account_bind_failed", { errorCode: result.error.code });
       window.alert(result.error.message);
       return;
     }
     setPlatformSession(result.data);
     const synced = await syncCampaignProgress(result.data, save);
+    trackCampaign("account_bind_success", { syncOk: synced.ok });
     setPlatformSyncText(synced.ok ? "云同步已开启" : "云同步待重试");
   };
 
@@ -240,9 +269,11 @@ export function CampaignShell() {
       window.alert("账号初始化中，请稍后再试");
       return;
     }
+    trackCampaign("ad_offer_start", { offerId: offer.id, placementId: offer.placementId, surface: offer.surface });
     audioRef.current?.playSfx("ad_start");
     const result = await runRewardedAdOffer(platformSession, offer.id, liveConfig);
     if (!result.ok) {
+      trackCampaign("ad_offer_failed", { offerId: offer.id, errorCode: result.error.code });
       audioRef.current?.playSfx("failure");
       window.alert(result.error.message);
       return;
@@ -258,6 +289,7 @@ export function CampaignShell() {
     audioRef.current?.playSfx("reward_claim");
     const eventResult = ingestEventProgress(platformSession, "ad_watch", 1, liveConfig);
     if (eventResult.ok) setEventCenter(eventResult.data);
+    trackCampaign("ad_offer_rewarded", { offerId: offer.id, placementId: offer.placementId, rewards: offerRewardText(offer) });
     setPlatformSyncText("广告奖励已入账");
     setToast(`${offer.title} 奖励已到账：${offerRewardText(offer)}`);
     window.setTimeout(() => setToast(null), 2200);
@@ -265,8 +297,10 @@ export function CampaignShell() {
 
   const claimReward = async (rewardId: string) => {
     if (!platformSession) return;
+    trackCampaign("reward_claim_start", { rewardId });
     const result = await claimRewardCenterItem(platformSession, rewardId);
     if (!result.ok) {
+      trackCampaign("reward_claim_failed", { rewardId, errorCode: result.error.code });
       window.alert(result.error.message);
       return;
     }
@@ -279,13 +313,16 @@ export function CampaignShell() {
     audioRef.current?.playSfx("reward_claim");
     const refreshed = await loadRewardCenter(platformSession);
     if (refreshed.ok) setRewardCenter(refreshed.data);
+    trackCampaign("reward_claim_success", { rewardId });
     setPlatformSyncText("奖励已领取");
   };
 
   const claimEventTask = async (eventId: string, taskId: string) => {
     if (!platformSession) return;
+    trackCampaign("event_task_claim_start", { eventId, taskId });
     const result = await claimEventTaskReward(platformSession, eventId, taskId);
     if (!result.ok) {
+      trackCampaign("event_task_claim_failed", { eventId, taskId, errorCode: result.error.code });
       audioRef.current?.playSfx("failure");
       window.alert(result.error.message);
       return;
@@ -300,11 +337,13 @@ export function CampaignShell() {
     audioRef.current?.playSfx("reward_claim");
     const refreshed = await loadEventCenter(platformSession, liveConfig);
     if (refreshed.ok) setEventCenter(refreshed.data);
+    trackCampaign("event_task_claim_success", { eventId, taskId });
     setToast("活动奖励已到账");
     window.setTimeout(() => setToast(null), 2200);
   };
 
   const acceptConsent = async () => {
+    trackCampaign("consent_accept");
     const next = acceptPrivacy(consent);
     const result = await updateConsentState(platformSession, next);
     if (result.ok) setConsent(result.data);
@@ -316,11 +355,13 @@ export function CampaignShell() {
   };
 
   const closeHomePopup = () => {
+    if (homePopup) trackCampaign("home_popup_close", { popupId: homePopup.id, campaignId: homePopup.campaignId });
     if (homePopup) closePopup(homePopup, platformSession);
     setHomePopup(null);
   };
 
   const suppressHomePopup = () => {
+    if (homePopup) trackCampaign("home_popup_suppress", { popupId: homePopup.id, campaignId: homePopup.campaignId });
     if (homePopup) suppressPopupToday(homePopup, platformSession);
     setHomePopup(null);
   };
@@ -328,6 +369,7 @@ export function CampaignShell() {
   const runPopupCta = () => {
     if (!homePopup) return;
     playTap();
+    trackCampaign("home_popup_cta", { popupId: homePopup.id, campaignId: homePopup.campaignId, targetKind: homePopup.target.kind });
     const target = homePopup.target;
     setHomePopup(null);
     if (target.kind === "activity") setScreen("activity");
@@ -341,6 +383,7 @@ export function CampaignShell() {
   };
 
   const revokeConsent = async () => {
+    trackCampaign("consent_revoke_optional");
     const next = revokeOptionalConsent(consent);
     const result = await updateConsentState(platformSession, next);
     if (result.ok) setConsent(result.data);
@@ -433,6 +476,7 @@ export function CampaignShell() {
           activeObstacles={activeObstacles}
           bonusHintCharges={hintCredits}
           onHintShortage={() => hintOffer && setAdPreviewOffer(hintOffer)}
+          onGameplayEvent={(name, data) => trackCampaign(name, data)}
           postLevelOfferLabel={staminaOffer ? "看广告领体力 +3" : undefined}
           onPostLevelOffer={() => staminaOffer && setAdPreviewOffer(staminaOffer)}
           onResolve={onPlayResolve}

@@ -1,7 +1,7 @@
 import { createRequestId, err, ok, type ApiResult } from "./api";
 import { DEFAULT_REMOTE_CONFIG } from "./config";
-import { mockPlatformProviders } from "./mockProviders";
 import type { PlatformProviders } from "./providers";
+import { runtimePlatformProviders } from "./runtimeProviders";
 import { readCache, writeCache, PLATFORM_STORAGE_KEYS } from "./storage";
 import type { Order, ProductCatalog, ProductSku, UserSession, WalletSnapshot } from "./types";
 
@@ -40,7 +40,7 @@ export function recordPaymentFailure(userId: string): PaymentRiskState {
   return next;
 }
 
-export async function loadCatalog(session: UserSession, providers: PlatformProviders = mockPlatformProviders): Promise<ApiResult<ProductCatalog>> {
+export async function loadCatalog(session: UserSession, providers: PlatformProviders = runtimePlatformProviders): Promise<ApiResult<ProductCatalog>> {
   const config = await providers.config.getConfig(session);
   if (!config.ok) return config;
   return providers.payment.getCatalog(session, config.data);
@@ -49,7 +49,7 @@ export async function loadCatalog(session: UserSession, providers: PlatformProvi
 export async function runMockPurchase(
   session: UserSession,
   skuId: string,
-  providers: PlatformProviders = mockPlatformProviders
+  providers: PlatformProviders = runtimePlatformProviders
 ): Promise<ApiResult<PurchaseFlowResult>> {
   const config = await providers.config.getConfig(session);
   if (!config.ok) return config;

@@ -1,7 +1,7 @@
 import type { CampaignSaveV1 } from "../campaign/types";
 import { createRequestId, type ApiResult, err, ok } from "./api";
-import { mockPlatformProviders } from "./mockProviders";
 import type { BindAccountInput, PlatformProviders } from "./providers";
+import { runtimePlatformProviders } from "./runtimeProviders";
 import { readUserSession, writeUserSession } from "./storage";
 import type { CampaignCloudProgress, UserSession, WalletSnapshot } from "./types";
 
@@ -37,7 +37,7 @@ export function summarizeAccount(session: UserSession | null): AccountSummary {
   };
 }
 
-export async function bootstrapPlatformUser(providers: PlatformProviders = mockPlatformProviders): Promise<ApiResult<UserSession>> {
+export async function bootstrapPlatformUser(providers: PlatformProviders = runtimePlatformProviders): Promise<ApiResult<UserSession>> {
   const existing = readUserSession();
   if (existing && existing.profile.bindingState !== "deleted") return ok(existing);
   return providers.auth.ensureGuestSession({ requestId: createRequestId("guest") });
@@ -47,7 +47,7 @@ export function restoreCachedPlatformSession(): UserSession | null {
   return readUserSession();
 }
 
-export async function refreshPlatformSession(session: UserSession, providers: PlatformProviders = mockPlatformProviders): Promise<ApiResult<UserSession>> {
+export async function refreshPlatformSession(session: UserSession, providers: PlatformProviders = runtimePlatformProviders): Promise<ApiResult<UserSession>> {
   const refreshed = await providers.auth.refreshSession(session, { requestId: createRequestId("refresh") });
   if (refreshed.ok) writeUserSession(refreshed.data);
   return refreshed;
@@ -56,14 +56,14 @@ export async function refreshPlatformSession(session: UserSession, providers: Pl
 export async function bindPlatformAccount(
   session: UserSession,
   input: BindAccountInput,
-  providers: PlatformProviders = mockPlatformProviders
+  providers: PlatformProviders = runtimePlatformProviders
 ): Promise<ApiResult<UserSession>> {
   const bound = await providers.auth.bindAccount(session, input, { requestId: createRequestId("bind"), idempotencyKey: createRequestId("bindidem") });
   if (bound.ok) writeUserSession(bound.data);
   return bound;
 }
 
-export async function requestAccountDeletion(session: UserSession, providers: PlatformProviders = mockPlatformProviders): Promise<ApiResult<UserSession>> {
+export async function requestAccountDeletion(session: UserSession, providers: PlatformProviders = runtimePlatformProviders): Promise<ApiResult<UserSession>> {
   const deleted = await providers.auth.requestDeletion(session, { requestId: createRequestId("delete") });
   if (deleted.ok) writeUserSession(deleted.data);
   return deleted;
@@ -97,7 +97,7 @@ export function mergeCampaignCloudProgress(local: CampaignSaveV1, cloud: Campaig
 export async function syncCampaignProgress(
   session: UserSession,
   localSave: CampaignSaveV1,
-  providers: PlatformProviders = mockPlatformProviders
+  providers: PlatformProviders = runtimePlatformProviders
 ): Promise<ApiResult<CampaignCloudProgress>> {
   const downloaded = await providers.auth.downloadCloudProgress(session, { requestId: createRequestId("cloudget") });
   if (!downloaded.ok) return downloaded;
@@ -105,7 +105,7 @@ export async function syncCampaignProgress(
   return providers.auth.uploadCloudProgress(session, merged, { requestId: createRequestId("cloudup"), idempotencyKey: `cloud:${session.profile.userId}:${merged.updatedAt}` });
 }
 
-export async function getWalletSummary(session: UserSession | null, providers: PlatformProviders = mockPlatformProviders): Promise<ApiResult<WalletSnapshot | null>> {
+export async function getWalletSummary(session: UserSession | null, providers: PlatformProviders = runtimePlatformProviders): Promise<ApiResult<WalletSnapshot | null>> {
   if (!session) return ok(null);
   if (session.profile.bindingState === "deleted" || session.profile.bindingState === "restricted") {
     return err("COMPLIANCE_RESTRICTED", "账号状态限制商业化资产访问。");

@@ -1,10 +1,10 @@
 import { err, ok, type ApiResult } from "./api";
 import { adEligibility, runRewardedAd } from "./ads";
 import { DEFAULT_REMOTE_CONFIG, isModuleEnabled } from "./config";
-import { mockPlatformProviders } from "./mockProviders";
 import type { PlatformProviders } from "./providers";
+import { runtimePlatformProviders } from "./runtimeProviders";
 import { PLATFORM_STORAGE_KEYS, readCache, writeCache } from "./storage";
-import type { AssetAmount, RemoteConfig, RewardedAdOffer, RewardedAdOfferState, RewardedAdOfferSurface, UserSession, WalletSnapshot } from "./types";
+import type { AnalyticsEvent, AssetAmount, RemoteConfig, RewardedAdOffer, RewardedAdOfferState, RewardedAdOfferSurface, UserSession, WalletSnapshot } from "./types";
 
 export type OfferEligibility = {
   state: RewardedAdOfferState;
@@ -41,7 +41,7 @@ export async function runRewardedAdOffer(
   session: UserSession,
   offerId: string,
   config: RemoteConfig = DEFAULT_REMOTE_CONFIG,
-  providers: PlatformProviders = mockPlatformProviders
+  providers: PlatformProviders = runtimePlatformProviders
 ): Promise<ApiResult<OfferRunResult>> {
   const offer = config.rewardedAdOffers.find((item) => item.id === offerId);
   if (!offer) return err("NOT_FOUND", "广告激励不存在。");
@@ -74,11 +74,12 @@ export function offerRewardText(offer: RewardedAdOffer): string {
 }
 
 function trackOffer(name: string, session: UserSession, offer: RewardedAdOffer, data: Record<string, string | number | boolean | null | undefined>) {
-  const queue = readCache<Array<{ name: string; userId?: string; data: Record<string, string | number | boolean | null | undefined>; createdAt: string }>>(PLATFORM_STORAGE_KEYS.analyticsQueue, []);
+  const queue = readCache<AnalyticsEvent[]>(PLATFORM_STORAGE_KEYS.analyticsQueue, []);
   writeCache(PLATFORM_STORAGE_KEYS.analyticsQueue, [
     ...queue,
     {
       name,
+      source: "ad",
       userId: session.profile.userId,
       data: { offerId: offer.id, placementId: offer.placementId, ...data },
       createdAt: new Date().toISOString()

@@ -1,7 +1,7 @@
 import { createRequestId, err, ok, type ApiResult } from "./api";
 import { DEFAULT_REMOTE_CONFIG, isModuleEnabled } from "./config";
-import { mockPlatformProviders } from "./mockProviders";
 import type { PlatformProviders } from "./providers";
+import { runtimePlatformProviders } from "./runtimeProviders";
 import { readEventCenterCache, writeEventCenterCache } from "./storage";
 import type { EventCenterSnapshot, EventTaskKind, LiveEventDefinition, LiveEventTask, RemoteConfig, UserSession, WalletSnapshot } from "./types";
 
@@ -53,7 +53,7 @@ export async function claimEventTaskReward(
   session: UserSession,
   eventId: string,
   taskId: string,
-  providers: PlatformProviders = mockPlatformProviders
+  providers: PlatformProviders = runtimePlatformProviders
 ): Promise<ApiResult<{ event: LiveEventDefinition; task: LiveEventTask; wallet: WalletSnapshot }>> {
   const current = buildEventCenter(session.profile.userId);
   const event = current.events.find((item) => item.id === eventId);

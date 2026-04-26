@@ -1,6 +1,6 @@
 import { createRequestId, type ApiResult } from "./api";
-import { mockPlatformProviders } from "./mockProviders";
 import type { PlatformProviders } from "./providers";
+import { runtimePlatformProviders } from "./runtimeProviders";
 import type { RewardCenterSnapshot, RewardDefinition, UserSession, WalletSnapshot } from "./types";
 
 export type ClaimRewardResult = {
@@ -8,7 +8,7 @@ export type ClaimRewardResult = {
   wallet: WalletSnapshot;
 };
 
-export async function loadRewardCenter(session: UserSession, providers: PlatformProviders = mockPlatformProviders): Promise<ApiResult<RewardCenterSnapshot>> {
+export async function loadRewardCenter(session: UserSession, providers: PlatformProviders = runtimePlatformProviders): Promise<ApiResult<RewardCenterSnapshot>> {
   const config = await providers.config.getConfig(session);
   if (!config.ok) return config;
   return providers.rewards.getRewardCenter(session, config.data, { requestId: createRequestId("rewardcenter") });
@@ -17,7 +17,7 @@ export async function loadRewardCenter(session: UserSession, providers: Platform
 export async function claimRewardCenterItem(
   session: UserSession,
   rewardId: string,
-  providers: PlatformProviders = mockPlatformProviders
+  providers: PlatformProviders = runtimePlatformProviders
 ): Promise<ApiResult<ClaimRewardResult>> {
   return providers.rewards.claimReward(session, rewardId, {
     requestId: createRequestId("claim"),
@@ -28,7 +28,7 @@ export async function claimRewardCenterItem(
 export async function ingestRewardProgress(
   session: UserSession,
   event: { kind: string; amount?: number; refId?: string },
-  providers: PlatformProviders = mockPlatformProviders
+  providers: PlatformProviders = runtimePlatformProviders
 ): Promise<ApiResult<RewardCenterSnapshot>> {
   return providers.rewards.ingestProgress(session, event, { requestId: createRequestId("rewardprogress"), idempotencyKey: `progress:${event.kind}:${event.refId ?? Date.now()}` });
 }

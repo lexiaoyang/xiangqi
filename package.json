@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "dev:server": "node server/index.mjs",
+    "dev:platform-server": "node server/platform-server.mjs",
+    "db:migrate": "node server/src/db/migrations.mjs plan",
+    "db:seed": "node server/src/db/migrations.mjs seed",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",

@@ -1,6 +1,6 @@
 import { createRequestId, err, ok, type ApiResult } from "./api";
-import { mockPlatformProviders } from "./mockProviders";
 import type { PlatformProviders } from "./providers";
+import { runtimePlatformProviders } from "./runtimeProviders";
 import { PLATFORM_STORAGE_KEYS, readCache, writeCache } from "./storage";
 import type { AdPlacement, AdShowToken, AssetAmount, UserSession, WalletSnapshot } from "./types";
 
@@ -67,7 +67,7 @@ export function storePendingAdToken(token: AdShowToken): void {
   writeCache("platform:pending-ad-tokens:v1", [...pendingAdTokens().filter((item) => item.token !== token.token), token]);
 }
 
-export async function loadAdPlacements(session: UserSession, providers: PlatformProviders = mockPlatformProviders): Promise<ApiResult<AdPlacement[]>> {
+export async function loadAdPlacements(session: UserSession, providers: PlatformProviders = runtimePlatformProviders): Promise<ApiResult<AdPlacement[]>> {
   const config = await providers.config.getConfig(session);
   if (!config.ok) return config;
   return providers.ads.getPlacements(session, config.data);
@@ -76,7 +76,7 @@ export async function loadAdPlacements(session: UserSession, providers: Platform
 export async function runRewardedAd(
   session: UserSession,
   placementId: string,
-  providers: PlatformProviders = mockPlatformProviders
+  providers: PlatformProviders = runtimePlatformProviders
 ): Promise<ApiResult<{ wallet: WalletSnapshot; rewards: AssetAmount[] }>> {
   const placements = await loadAdPlacements(session, providers);
   if (!placements.ok) return placements;
@@ -90,6 +90,7 @@ export async function runRewardedAd(
   storePendingAdToken(token.data);
   await providers.analytics.track({
     name: "ad_reward_token_issued",
+    source: "ad",
     userId: session.profile.userId,
     deviceId: session.device.deviceId,
     data: { placementId, rewardId: token.data.rewardId },
@@ -101,6 +102,7 @@ export async function runRewardedAd(
   if (!show.data.completed) return err("VALIDATION_FAILED", "广告未完整观看。", true);
   await providers.analytics.track({
     name: "ad_reward_completed",
+    source: "ad",
     userId: session.profile.userId,
     deviceId: session.device.deviceId,
     data: { placementId, showId: show.data.showId, provider: "mock" },
@@ -112,6 +114,7 @@ export async function runRewardedAd(
   recordAdShown(session.profile.userId, placementId);
   await providers.analytics.track({
     name: "ad_reward_granted",
+    source: "ad",
     userId: session.profile.userId,
     deviceId: session.device.deviceId,
     data: { placementId, rewardId: token.data.rewardId },

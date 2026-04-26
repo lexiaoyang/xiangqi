@@ -40,6 +40,7 @@ import type {
 
 const ACCESS_TOKEN_TTL_MS = 10 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const ANALYTICS_ENDPOINT = "/api/platform/analytics";
 const nowIso = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
 
@@ -99,6 +100,40 @@ function writeLedgers(entries: LedgerEntry[]) {
   writeCache(PLATFORM_STORAGE_KEYS.ledger, entries);
 }
 
+function currentAnalyticsPage(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  return `${window.location.pathname}${window.location.hash}`;
+}
+
+function withAnalyticsDefaults(event: AnalyticsEvent): AnalyticsEvent {
+  return {
+    ...event,
+    source: event.source || "client",
+    page: event.page || currentAnalyticsPage(),
+    data: event.data ?? {},
+    createdAt: event.createdAt || nowIso()
+  };
+}
+
+function appendAnalyticsQueue(events: AnalyticsEvent[]): void {
+  const queue = readCache<AnalyticsEvent[]>(PLATFORM_STORAGE_KEYS.analyticsQueue, []);
+  writeCache(PLATFORM_STORAGE_KEYS.analyticsQueue, [...queue, ...events.map(withAnalyticsDefaults)]);
+}
+
+async function postAnalyticsEvents(events: AnalyticsEvent[]): Promise<boolean> {
+  if (typeof fetch !== "function" || events.length === 0) return false;
+  try {
+    const response = await fetch(ANALYTICS_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ events: events.map(withAnalyticsDefaults) })
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 function applyDeltas(wallet: WalletSnapshot, deltas: AssetAmount[]): WalletSnapshot {
   const balances = { ...wallet.balances };
   for (const delta of deltas) {
@@ -139,6 +174,7 @@ function mutateWallet(userId: string, input: { source: string; sourceId: string;
     ...analytics,
     {
       name: input.deltas.some((delta) => delta.amount < 0) ? "economy_sink" : "economy_source",
+      source: "economy",
       userId,
       data: {
         source: input.source,
@@ -427,12 +463,16 @@ export function createMockPlatformProviders(configOverride?: Partial<RemoteConfi
     },
     analytics: {
       async track(event: AnalyticsEvent) {
-        const queue = readCache<AnalyticsEvent[]>(PLATFORM_STORAGE_KEYS.analyticsQueue, []);
-        writeCache(PLATFORM_STORAGE_KEYS.analyticsQueue, [...queue, event]);
+        const normalized = withAnalyticsDefaults(event);
+        const delivered = await postAnalyticsEvents([normalized]);
+        if (!delivered) appendAnalyticsQueue([normalized]);
         return ok(undefined);
       },
       async flush() {
         const queue = readCache<AnalyticsEvent[]>(PLATFORM_STORAGE_KEYS.analyticsQueue, []);
+        if (queue.length === 0) return ok(0);
+        const delivered = await postAnalyticsEvents(queue);
+        if (!delivered) return err("NETWORK_UNAVAILABLE", "埋点服务暂不可用，事件已保留在本地队列。", true);
         writeCache(PLATFORM_STORAGE_KEYS.analyticsQueue, []);
         return ok(queue.length);
       }

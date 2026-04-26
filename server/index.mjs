@@ -2,6 +2,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildAnalyticsStats, normalizeAnalyticsEvents } from "./analytics.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
@@ -485,11 +486,21 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      if (req.method === "GET" && url.pathname === "/api/platform/analytics/stats") {
+        sendJson(res, 200, { ok: true, stats: buildAnalyticsStats(state.analytics, { limit: url.searchParams.get("limit") }) });
+        return;
+      }
+
       if (req.method === "POST" && url.pathname === "/api/platform/analytics") {
         const body = JSON.parse(await readBody(req));
-        state.analytics.push({ ...body, createdAt: nowIso() });
+        const normalized = normalizeAnalyticsEvents(body, nowIso());
+        if (!normalized.ok) {
+          sendJson(res, 400, { ok: false, error: normalized.error });
+          return;
+        }
+        state.analytics.push(...normalized.events);
         writePlatformState(state);
-        sendJson(res, 202, { ok: true });
+        sendJson(res, 202, { ok: true, accepted: normalized.events.length });
         return;
       }
 

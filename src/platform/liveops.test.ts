@@ -1,7 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_REMOTE_CONFIG } from "./config";
 import { createMockPlatformProviders } from "./mockProviders";
 import { buildAnalyticsEvent, dashboardMetrics, evaluateSegment, isScheduledActive, loadLiveConfig, safeAnalyticsData, stableExperimentAssignment, trackEvent } from "./liveops";
+import { PLATFORM_STORAGE_KEYS, readCache } from "./storage";
+
+beforeEach(() => {
+  localStorage.clear();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("platform liveops and analytics", () => {
   it("loads valid config and evaluates feature flags", async () => {
@@ -44,5 +53,43 @@ describe("platform liveops and analytics", () => {
     const event = buildAnalyticsEvent("level_complete", session.data, DEFAULT_REMOTE_CONFIG, data);
     await trackEvent("level_complete", session.data, DEFAULT_REMOTE_CONFIG, data, providers);
     expect(dashboardMetrics([event]).levelEvents).toBe(1);
+  });
+
+  it("sends analytics to the backend endpoint when available", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    const providers = createMockPlatformProviders();
+    const session = await providers.auth.ensureGuestSession();
+    expect(session.ok).toBe(true);
+    if (!session.ok) return;
+
+    const result = await trackEvent("shop_open", session.data, DEFAULT_REMOTE_CONFIG, { screen: "hub" }, providers);
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const call = fetchMock.mock.calls[0];
+    expect(call?.[0]).toBe("/api/platform/analytics");
+    const body = JSON.parse(String((call?.[1] as RequestInit).body));
+    expect(body.events[0]).toMatchObject({ name: "shop_open", source: "client", userId: session.data.profile.userId });
+    expect(readCache(PLATFORM_STORAGE_KEYS.analyticsQueue, [])).toEqual([]);
+  });
+
+  it("buffers failed analytics events and flushes them later", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({ ok: false }).mockResolvedValueOnce({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    const providers = createMockPlatformProviders();
+    const session = await providers.auth.ensureGuestSession();
+    expect(session.ok).toBe(true);
+    if (!session.ok) return;
+
+    await trackEvent("shop_open", session.data, DEFAULT_REMOTE_CONFIG, { screen: "hub" }, providers);
+    expect(readCache(PLATFORM_STORAGE_KEYS.analyticsQueue, [])).toHaveLength(1);
+
+    const flushed = await providers.analytics.flush();
+
+    expect(flushed.ok).toBe(true);
+    if (!flushed.ok) return;
+    expect(flushed.data).toBe(1);
+    expect(readCache(PLATFORM_STORAGE_KEYS.analyticsQueue, [])).toEqual([]);
   });
 });

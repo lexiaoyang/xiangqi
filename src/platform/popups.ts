@@ -56,6 +56,7 @@ function trackPopup(name: string, popup: HomePopupConfig, session: UserSession |
     ...queue,
     {
       name,
+      source: "popup",
       userId: session?.profile.userId,
       deviceId: session?.device.deviceId,
       data: { popupId: popup.id, campaignId: popup.campaignId, priority: popup.priority, ...data },

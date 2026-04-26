@@ -66,6 +66,42 @@ npm run dev          # Vite 将 /api 代理到 8787
 
 Mock 数据持久化在 `server/data/platform.json`，该目录不应提交真实用户数据或密钥。
 
+## Real Backend
+
+新增真实后端雏形位于 `server/src`，按 `http / services / repositories / db / integrations / config / tests` 分层。默认不替换旧 mock server，便于迁移期间双轨验证。
+
+```bash
+docker compose -f docker-compose.backend.yml up -d
+npm run db:migrate
+npm run db:seed
+npm run dev:platform-server
+VITE_PLATFORM_PROVIDER=http npm run dev
+```
+
+环境变量：
+
+- `PLATFORM_BACKEND_MODE`：`memory` / `postgres` / `production`，当前本地默认 `memory`。
+- `DATABASE_URL`、`REDIS_URL`：PostgreSQL 和 Redis 连接串。
+- `JWT_SECRET`、`SESSION_SECRET`：会话签名密钥，生产环境必须替换。
+- `PAYMENT_SANDBOX_SECRET`、`AD_SANDBOX_SECRET`：支付/广告沙盒适配器密钥。
+- `CORS_ORIGIN`：后端允许访问的前端源。
+- `VITE_PLATFORM_PROVIDER=http`：前端切换到 HTTP provider；不设置则继续使用本地 mock provider。
+- `VITE_PLATFORM_API_ROOT`：前端平台 API 根路径，默认 `/api/platform`。
+
+数据归属：
+
+- 服务端权威：用户、设备、会话、云存档、钱包余额、append-only ledger、订单、广告 show token、奖励领取、活动进度、弹窗展示、同意状态、审计、风控信号。
+- 前端缓存：`localStorage` 只保留最近一次 session/config/wallet/reward center/pending retry，用于后端不可用时展示降级状态，不能作为资产或订单真相。
+- 迁移保留：`server/index.mjs` 和 `src/platform/mockProviders.ts` 继续作为 sandbox/fixture 模式，避免真实后端未接完时阻塞客户端开发。
+
+运维 runbook：
+
+- 备份/恢复：定期备份 PostgreSQL；恢复后运行 ledger reconciliation 比对 `wallets.balances` 与 `ledger_entries` 投影。
+- 配置回滚：在 `remote_configs` 中恢复上一版 `active=true` 配置，必要时打开 `killSwitches`。
+- 支付事故：暂停支付开关，冻结新订单，复核 `paid` 未 `fulfilled` 订单并通过幂等发货补偿。
+- 广告奖励事故：关闭对应 placement/offer，按 show token 与 ledger idempotency key 排查重复发奖。
+- 隐私删除：调用删除流程后撤销 session，限制商业模块，并导出/清除用户可识别数据。
+
 ## 幂等与账本
 
 - 会发资产的操作必须带 `idempotencyKey`。

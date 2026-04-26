@@ -59,13 +59,14 @@ type Props = {
   save: CampaignSaveV1;
   activeObstacles: ObstacleId[];
   onResolve: (r: PlayResolve) => void;
+  onGameplayEvent?: (name: string, data: Record<string, unknown>) => void;
   bonusHintCharges?: number;
   onHintShortage?: () => void;
   postLevelOfferLabel?: string;
   onPostLevelOffer?: () => void;
 };
 
-export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, bonusHintCharges = 0, onHintShortage, postLevelOfferLabel, onPostLevelOffer }: Props) {
+export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, onGameplayEvent, bonusHintCharges = 0, onHintShortage, postLevelOfferLabel, onPostLevelOffer }: Props) {
   const scene = sceneById(spec.sceneId);
   const [game, setGame] = useState<GameBundle>(() => buildGameBundleSeeded(spec.sceneId, spec.difficulty, spec.layoutSeed));
   const [steps, setSteps] = useState(0);
@@ -141,6 +142,9 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, bonusHin
         }
         const nextSteps = steps + 1;
         setSteps(nextSteps);
+        if (nextSteps === 1) {
+          onGameplayEvent?.("level_first_move", { levelId: spec.levelId, direction: dir, input: "maze" });
+        }
         if (res.won) {
           const durationMs = Date.now() - gameStartMs.current;
           setElapsedMs(durationMs);
@@ -161,7 +165,7 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, bonusHin
         return res.game;
       });
     },
-    [won, givenUp, pushHistory, steps, spec, timerOn]
+    [won, givenUp, onGameplayEvent, pushHistory, steps, spec, timerOn]
   );
 
   useEffect(() => {
@@ -204,6 +208,7 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, bonusHin
   const giveUp = () => {
     if (won || givenUp) return;
     const durationMs = Date.now() - gameStartMs.current;
+    onGameplayEvent?.("level_give_up", { levelId: spec.levelId, steps, durationMs });
     setElapsedMs(durationMs);
     setFinalStats({ won: false, stars: 0, steps, durationMs });
     setGivenUp(true);
@@ -330,11 +335,13 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, bonusHin
   const onHint = () => {
     if (won || givenUp) return;
     if (hintLeft < 1) {
+      onGameplayEvent?.("hint_shortage", { levelId: spec.levelId });
       onHintShortage?.();
       return;
     }
     const next = nextStepTowardGoal(maze, player, goal);
     if (!next) return;
+    onGameplayEvent?.("hint_used", { levelId: spec.levelId, hintLeftBefore: hintLeft });
     setHintLeft((n) => n - 1);
     setHintFlash(next);
     window.setTimeout(() => setHintFlash(null), 900);
@@ -344,6 +351,7 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, bonusHin
     if (won || givenUp || undoLeft < 1) return;
     const prev = historyRef.current.pop();
     if (!prev) return;
+    onGameplayEvent?.("undo_used", { levelId: spec.levelId, undoLeftBefore: undoLeft });
     setUndoLeft((n) => n - 1);
     setGame(prev);
     setSteps((s) => Math.max(0, s - 1));
@@ -475,10 +483,26 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, bonusHin
           <span>↩</span>
           <small>{undoLeft}</small>
         </button>
-        <button type="button" className="c-action-btn" aria-label="放大" onClick={() => setZoom((z) => clamp(z + 0.12, 0.55, 2.85))}>
+        <button
+          type="button"
+          className="c-action-btn"
+          aria-label="放大"
+          onClick={() => {
+            onGameplayEvent?.("board_zoom", { levelId: spec.levelId, direction: "in" });
+            setZoom((z) => clamp(z + 0.12, 0.55, 2.85));
+          }}
+        >
           +
         </button>
-        <button type="button" className="c-action-btn" aria-label="缩小" onClick={() => setZoom((z) => clamp(z - 0.12, 0.55, 2.85))}>
+        <button
+          type="button"
+          className="c-action-btn"
+          aria-label="缩小"
+          onClick={() => {
+            onGameplayEvent?.("board_zoom", { levelId: spec.levelId, direction: "out" });
+            setZoom((z) => clamp(z - 0.12, 0.55, 2.85));
+          }}
+        >
           −
         </button>
         <button type="button" className="c-action-btn c-action-btn--danger" onClick={giveUp} aria-label="放弃本关">
