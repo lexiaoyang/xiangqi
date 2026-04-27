@@ -23,4 +23,37 @@ export type GameBundle = {
   gustMap: Map<string, Dir>;
   /** portal：双向传送；null 表示本局无传送门 */
   portalPair: { a: Pos; b: Pos } | null;
+  keyCells: Set<string>;
+  lockCells: Set<string>;
+  trapCells: Set<string>;
+  sentryCells: Map<string, Dir>;
+  switchCells: Set<string>;
+  unstableCells: Map<string, number>;
+  memoryRuneCells: Set<string>;
+  memoryGateCells: Set<string>;
+  phaseDoorCells: Set<string>;
+  relicsRemaining: Set<string>;
+  requiredRelics: number;
+  status: {
+    keysHeld: number;
+    memoryRunes: number;
+    switchesActivated: number;
+    trapHits: number;
+    sentryHits: number;
+    unstableBreaks: number;
+    lockedBlocks: number;
+    relicsCollected: number;
+    phaseOpen: boolean;
+    freezeMoves: number;
+    decoys: number;
+    revealPulseMoves: number;
+    toolsUsed: number;
+    lastMessage?: string;
+  };
+};
+
+export type StrategicBuildOptions = {
+  levelId?: number;
+  modifierIds?: Array<"keys" | "traps" | "sentries" | "switches" | "unstable" | "memory" | "phase" | "relics">;
+  complexity?: number;
 };

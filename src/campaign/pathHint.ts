@@ -1,7 +1,7 @@
 import { isWall } from "../maze/generate";
-import type { WallGrid } from "../maze/types";
+import type { GameBundle, WallGrid } from "../maze/types";
 import type { Pos } from "../maze/types";
-import { equalPos, posKey } from "../maze/gameState";
+import { applyDirection, equalPos, posKey } from "../maze/gameState";
 import type { Dir } from "../maze/types";
 
 const DIRS: Dir[] = ["up", "down", "left", "right"];
@@ -41,4 +41,38 @@ export function nextStepTowardGoal(maze: WallGrid, start: Pos, goal: Pos): Pos |
     }
   }
   return null;
+}
+
+function strategicStateKey(g: GameBundle): string {
+  return [
+    posKey(g.player),
+    [...g.treatsRemaining].sort().join(","),
+    [...g.relicsRemaining].sort().join(","),
+    [...g.keyCells].sort().join(","),
+    [...g.lockCells].sort().join(","),
+    [...g.memoryRuneCells].sort().join(","),
+    [...g.memoryGateCells].sort().join(","),
+    g.status.keysHeld,
+    g.status.memoryRunes,
+    g.status.switchesActivated
+  ].join("|");
+}
+
+export function nextStepTowardStrategicGoal(game: GameBundle): Pos | null {
+  const q: Array<{ game: GameBundle; first: Pos | null }> = [{ game, first: null }];
+  const seen = new Set([strategicStateKey(game)]);
+  while (q.length) {
+    const cur = q.shift()!;
+    for (const d of DIRS) {
+      const result = applyDirection(cur.game, d);
+      if (!result.moved) continue;
+      const first = cur.first ?? result.game.player;
+      if (result.won) return first;
+      const key = strategicStateKey(result.game);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      q.push({ game: result.game, first });
+    }
+  }
+  return nextStepTowardGoal(game.maze, game.player, game.goal);
 }

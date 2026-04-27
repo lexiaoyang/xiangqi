@@ -25,8 +25,8 @@ export const DEFAULT_REMOTE_CONFIG: RemoteConfig = {
   catalog: [
     {
       id: "coins_pack_small",
-      title: "金币小袋",
-      description: "立即获得 300 金币",
+      title: "战术金币小袋",
+      description: "300 金币，用于购买基础补给与策略工具",
       priceLabel: "¥6",
       amount: 6,
       currency: "CNY",
@@ -34,23 +34,100 @@ export const DEFAULT_REMOTE_CONFIG: RemoteConfig = {
       contents: [{ kind: "coins", amount: 300 }],
       enabled: true,
       tags: ["coins", "starter"],
-      limit: { kind: "none", max: 0 }
+      limit: { kind: "none", max: 0 },
+      category: "resources",
+      valueCopy: "适合补齐一次关卡前准备"
     },
     {
       id: "stamina_bundle",
-      title: "体力补给",
-      description: "获得 10 点体力和 1 个提示",
+      title: "夜航体力补给",
+      description: "获得 12 点体力、2 次提示与 1 次撤销",
       priceLabel: "¥8",
       amount: 8,
       currency: "CNY",
       provider: "mock",
       contents: [
-        { kind: "stamina", amount: 10 },
-        { kind: "hint", amount: 1 }
+        { kind: "stamina", amount: 12 },
+        { kind: "hint", amount: 2 },
+        { kind: "undo", amount: 1 }
       ],
       enabled: true,
-      tags: ["stamina"],
-      limit: { kind: "daily", max: 3 }
+      tags: ["stamina", "starter"],
+      limit: { kind: "daily", max: 3 },
+      category: "starter",
+      valueCopy: "连续挑战失败时的恢复包"
+    },
+    {
+      id: "scanner_tool_pack",
+      title: "战术扫描包",
+      description: "扫描×5，提前识别陷阱、巡逻和遗物位置",
+      priceLabel: "¥12",
+      amount: 12,
+      currency: "CNY",
+      provider: "mock",
+      contents: [{ kind: "coins", amount: 80 }],
+      tacticalContents: [{ toolId: "scanner", amount: 5 }],
+      enabled: true,
+      tags: ["scanner", "tool"],
+      limit: { kind: "daily", max: 4 },
+      category: "tactical_tools",
+      valueCopy: "适合巡逻、陷阱、遗物章节"
+    },
+    {
+      id: "systems_prep_pack",
+      title: "机关破解包",
+      description: "冻结×2、架桥×2、万能钥匙×1，处理机关复合关",
+      priceLabel: "¥18",
+      amount: 18,
+      currency: "CNY",
+      provider: "mock",
+      contents: [{ kind: "coins", amount: 160 }],
+      tacticalContents: [
+        { toolId: "freeze", amount: 2 },
+        { toolId: "bridge", amount: 2 },
+        { toolId: "key_forge", amount: 1 }
+      ],
+      enabled: true,
+      tags: ["chapter", "tools"],
+      limit: { kind: "daily", max: 2 },
+      category: "chapter_prep",
+      valueCopy: "给开关、相位门、不稳定地块准备容错"
+    },
+    {
+      id: "relic_master_pack",
+      title: "遗物大师包",
+      description: "脉冲×2、回卷×2、诱饵×2，追求高星撤离路线",
+      priceLabel: "¥28",
+      amount: 28,
+      currency: "CNY",
+      provider: "mock",
+      contents: [{ kind: "premium", amount: 10 }],
+      tacticalContents: [
+        { toolId: "reveal_pulse", amount: 2 },
+        { toolId: "rewind", amount: 2 },
+        { toolId: "decoy", amount: 2 }
+      ],
+      enabled: true,
+      tags: ["relic", "master"],
+      limit: { kind: "weekly", max: 3 },
+      category: "limited",
+      valueCopy: "高难遗物关的收益/撤离工具组"
+    },
+    {
+      id: "vip_strategy_pass",
+      title: "VIP 策略通行证",
+      description: "获得 180 VIP 点、300 金币和每日战术权益",
+      priceLabel: "¥30",
+      amount: 30,
+      currency: "CNY",
+      provider: "mock",
+      contents: [{ kind: "coins", amount: 300 }],
+      vipPoints: 180,
+      enabled: true,
+      tags: ["vip", "pass"],
+      limit: { kind: "monthly", max: 1 },
+      category: "vip",
+      valueCopy: "解锁体力上限、奖励加成、扫描半径、每日工具包和额外战术槽"
     }
   ],
   adPlacements: [

@@ -15,6 +15,14 @@ const smokeSave = (): CampaignSaveV1 => ({
   coins: 100,
   stamina: 20,
   toolsUnlocked: {},
+  toolInventory: {},
+  vip: { points: 0 },
+  seenMechanics: {},
+  masteryRecords: {},
+  daily: { day: "2026-01-01", levelId: 1 },
+  streak: { count: 0, best: 0 },
+  achievements: {},
+  codex: {},
   lastStaminaTs: Date.now()
 });
 
@@ -35,6 +43,10 @@ describe("platform commercial smoke flow", () => {
 
     const catalog = await loadCatalog(session.data, providers);
     expect(catalog.ok).toBe(true);
+    if (catalog.ok) {
+      expect(catalog.data.skus.some((sku) => sku.id === "scanner_tool_pack" && Boolean(sku.tacticalContents?.length))).toBe(true);
+      expect(catalog.data.skus.some((sku) => sku.id === "vip_strategy_pass" && Boolean(sku.vipPoints))).toBe(true);
+    }
     const purchase = await runMockPurchase(session.data, "coins_pack_small", providers);
     expect(purchase.ok).toBe(true);
 

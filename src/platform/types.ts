@@ -116,6 +116,8 @@ export type PurchaseLimit = {
   max: number;
 };
 
+export type ProductCategory = "resources" | "tactical_tools" | "chapter_prep" | "vip" | "limited" | "starter";
+
 export type ProductSku = {
   id: string;
   title: string;
@@ -130,6 +132,11 @@ export type ProductSku = {
   limit: PurchaseLimit;
   channel?: string;
   regionAllowList?: string[];
+  category?: ProductCategory;
+  valueCopy?: string;
+  tacticalContents?: Array<{ toolId: string; amount: number }>;
+  vipPoints?: number;
+  bonusLabel?: string;
 };
 
 export type SkuEligibility = {

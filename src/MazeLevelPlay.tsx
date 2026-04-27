@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { computeStars } from "./campaign/stars";
 import { TOOL_META } from "./campaign/mechanics";
-import { nextStepTowardGoal } from "./campaign/pathHint";
-import type { CampaignSaveV1, LevelSpec, ObstacleId } from "./campaign/types";
-import { applyDirection, buildGameBundleSeeded, equalPos } from "./maze/gameState";
+import { nextStepTowardStrategicGoal } from "./campaign/pathHint";
+import { evaluateMastery, MODIFIER_COPY } from "./campaign/retention";
+import { TACTICAL_TOOL_META } from "./campaign/strategy";
+import type { CampaignSaveV1, LevelSpec, ObstacleId, ToolId } from "./campaign/types";
+import { applyDirection, applyTacticalTool, buildGameBundleSeeded, equalPos } from "./maze/gameState";
 import { gridDimensions } from "./maze/generate";
 import { sceneById } from "./maze/scenes";
 import type { Dir, GameBundle, Pos } from "./maze/types";
@@ -16,7 +18,19 @@ function cloneG(g: GameBundle): GameBundle {
     mechanic: g.mechanic,
     treatsRemaining: new Set(g.treatsRemaining),
     gustMap: new Map(g.gustMap),
-    portalPair: g.portalPair ? { a: { ...g.portalPair.a }, b: { ...g.portalPair.b } } : null
+    portalPair: g.portalPair ? { a: { ...g.portalPair.a }, b: { ...g.portalPair.b } } : null,
+    keyCells: new Set(g.keyCells),
+    lockCells: new Set(g.lockCells),
+    trapCells: new Set(g.trapCells),
+    sentryCells: new Map(g.sentryCells),
+    switchCells: new Set(g.switchCells),
+    unstableCells: new Map(g.unstableCells),
+    memoryRuneCells: new Set(g.memoryRuneCells),
+    memoryGateCells: new Set(g.memoryGateCells),
+    phaseDoorCells: new Set(g.phaseDoorCells),
+    relicsRemaining: new Set(g.relicsRemaining),
+    requiredRelics: g.requiredRelics,
+    status: { ...g.status }
   };
 }
 
@@ -45,6 +59,10 @@ export type PlayResolve = {
   stars: 0 | 1 | 2 | 3;
   steps: number;
   durationMs: number;
+  dangerHits: number;
+  toolUses: number;
+  relicsCollected: number;
+  requiredRelics: number;
 };
 
 type FinalStats = {
@@ -64,18 +82,44 @@ type Props = {
   onHintShortage?: () => void;
   postLevelOfferLabel?: string;
   onPostLevelOffer?: () => void;
+  onToolUse?: (tool: ToolId) => void;
+  extraLoadoutSlots?: number;
+  scannerRadiusBonus?: number;
 };
 
-export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, onGameplayEvent, bonusHintCharges = 0, onHintShortage, postLevelOfferLabel, onPostLevelOffer }: Props) {
+const tacticalBarTools: ToolId[] = ["scanner", "freeze", "bridge", "decoy", "key_forge", "reveal_pulse"];
+
+function initialToolCharges(save: CampaignSaveV1, bonusHintCharges: number): Partial<Record<ToolId, number>> {
+  const out: Partial<Record<ToolId, number>> = {};
+  for (const [tool, meta] of Object.entries(TOOL_META) as Array<[ToolId, (typeof TOOL_META)[ToolId]]>) {
+    out[tool] = (save.toolsUnlocked[tool] ? meta.defaultCharges : 0) + (save.toolInventory[tool] ?? 0);
+  }
+  out.hint = (out.hint ?? 0) + bonusHintCharges;
+  return out;
+}
+
+export function MazeLevelPlay({
+  spec,
+  save,
+  activeObstacles,
+  onResolve,
+  onGameplayEvent,
+  bonusHintCharges = 0,
+  onHintShortage,
+  postLevelOfferLabel,
+  onPostLevelOffer,
+  onToolUse,
+  extraLoadoutSlots = 0,
+  scannerRadiusBonus = 0
+}: Props) {
   const scene = sceneById(spec.sceneId);
-  const [game, setGame] = useState<GameBundle>(() => buildGameBundleSeeded(spec.sceneId, spec.difficulty, spec.layoutSeed));
+  const [game, setGame] = useState<GameBundle>(() => buildGameBundleSeeded(spec.sceneId, spec.difficulty, spec.layoutSeed, spec));
   const [steps, setSteps] = useState(0);
   const [won, setWon] = useState(false);
   const [givenUp, setGivenUp] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [hintFlash, setHintFlash] = useState<Pos | null>(null);
-  const [hintLeft, setHintLeft] = useState(() => (save.toolsUnlocked.hint ? TOOL_META.hint.defaultCharges : 0) + bonusHintCharges);
-  const [undoLeft, setUndoLeft] = useState(() => (save.toolsUnlocked.undo ? TOOL_META.undo.defaultCharges : 0));
+  const [toolCharges, setToolCharges] = useState(() => initialToolCharges(save, bonusHintCharges));
   const historyRef = useRef<GameBundle[]>([]);
   const zoomRef = useRef(1);
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
@@ -92,12 +136,16 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, onGamepl
   const [joystickOffset, setJoystickOffset] = useState({ x: 0, y: 0 });
   const [boardPx, setBoardPx] = useState(320);
   const [finalStats, setFinalStats] = useState<FinalStats | null>(null);
+  const [toolUseCount, setToolUseCount] = useState(0);
 
   const fogOn = activeObstacles.includes("fog");
   const timerOn = activeObstacles.includes("timer_pressure") && spec.timeLimitSec != null;
 
-  const { maze, player, goal, mechanic, treatsRemaining, gustMap, portalPair } = game;
+  const { maze, player, goal, mechanic, treatsRemaining, gustMap, portalPair, keyCells, lockCells, trapCells, sentryCells, switchCells, unstableCells, memoryRuneCells, memoryGateCells, phaseDoorCells, relicsRemaining, status } = game;
+  const hintLeft = toolCharges.hint ?? 0;
+  const undoLeft = toolCharges.undo ?? 0;
   const { rows, cols } = gridDimensions(maze);
+  const revealRadius = 2 + scannerRadiusBonus;
 
   useEffect(() => {
     zoomRef.current = zoom;
@@ -202,7 +250,18 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, onGamepl
 
   const emit = (action: PlayResolve["action"]) => {
     const stats = finishStats();
-    onResolve({ action, won: stats.won, stars: stats.stars, steps: stats.steps, durationMs: stats.durationMs });
+    const dangerHits = status.trapHits + status.sentryHits + status.unstableBreaks;
+    onResolve({
+      action,
+      won: stats.won,
+      stars: stats.stars,
+      steps: stats.steps,
+      durationMs: stats.durationMs,
+      dangerHits,
+      toolUses: toolUseCount,
+      relicsCollected: status.relicsCollected,
+      requiredRelics: game.requiredRelics
+    });
   };
 
   const giveUp = () => {
@@ -339,10 +398,11 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, onGamepl
       onHintShortage?.();
       return;
     }
-    const next = nextStepTowardGoal(maze, player, goal);
+    const next = nextStepTowardStrategicGoal(game);
     if (!next) return;
     onGameplayEvent?.("hint_used", { levelId: spec.levelId, hintLeftBefore: hintLeft });
-    setHintLeft((n) => n - 1);
+    setToolCharges((charges) => ({ ...charges, hint: Math.max(0, (charges.hint ?? 0) - 1) }));
+    setToolUseCount((n) => n + 1);
     setHintFlash(next);
     window.setTimeout(() => setHintFlash(null), 900);
   };
@@ -352,21 +412,67 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, onGamepl
     const prev = historyRef.current.pop();
     if (!prev) return;
     onGameplayEvent?.("undo_used", { levelId: spec.levelId, undoLeftBefore: undoLeft });
-    setUndoLeft((n) => n - 1);
+    setToolCharges((charges) => ({ ...charges, undo: Math.max(0, (charges.undo ?? 0) - 1) }));
+    setToolUseCount((n) => n + 1);
     setGame(prev);
     setSteps((s) => Math.max(0, s - 1));
+  };
+
+  const consumeTool = (tool: ToolId): boolean => {
+    if ((toolCharges[tool] ?? 0) < 1) return false;
+    setToolCharges((charges) => ({ ...charges, [tool]: Math.max(0, (charges[tool] ?? 0) - 1) }));
+    setToolUseCount((n) => n + 1);
+    onToolUse?.(tool);
+    onGameplayEvent?.("tactical_tool_used", { levelId: spec.levelId, tool });
+    return true;
+  };
+
+  const onTacticalTool = (tool: ToolId) => {
+    if (won || givenUp) return;
+    if (tool === "rewind") {
+      if (!consumeTool(tool)) return;
+      for (let i = 0; i < 3; i++) {
+        const prev = historyRef.current.pop();
+        if (!prev) break;
+        setGame(prev);
+        setSteps((s) => Math.max(0, s - 1));
+      }
+      return;
+    }
+    if (!consumeTool(tool)) return;
+    setGame((g) => applyTacticalTool(g, tool).game);
   };
 
   const sameCell = (r: number, c: number) => player.row === r && player.col === c;
   const isGoalCell = (r: number, c: number) => goal.row === r && goal.col === c;
   const onPortal = (r: number, c: number) =>
     portalPair && (equalPos(portalPair.a, { row: r, col: c }) || equalPos(portalPair.b, { row: r, col: c }));
+  const isRevealed = (r: number, c: number) => status.revealPulseMoves > 0 || manhattan(player, { row: r, col: c }) <= revealRadius;
 
   const collectDone = mechanic === "collect" && treatsRemaining.size === 0;
   const collectTotal = scene.collectCount ?? 0;
+  const relicDone = spec.modifierIds.includes("relics") ? relicsRemaining.size === 0 : true;
+  const dangerCount = status.trapHits + status.sentryHits + status.unstableBreaks;
 
   const endStats = finalStats ?? (won || givenUp ? finishStats() : null);
   const displayMs = endStats?.durationMs ?? elapsedMs;
+  const mastery =
+    endStats && endStats.won
+      ? evaluateMastery(
+          spec,
+          {
+            stars: endStats.stars,
+            steps: endStats.steps,
+            durationMs: endStats.durationMs,
+            dangerHits: dangerCount,
+            toolUses: toolUseCount,
+            relicsCollected: status.relicsCollected,
+            requiredRelics: game.requiredRelics
+          },
+          save.vip.points
+        )
+      : null;
+  const firstUnseenMechanic = spec.modifierIds.find((modifier) => !save.codex[modifier]);
 
   return (
     <div className="campaign-play-root">
@@ -376,7 +482,9 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, onGamepl
         </button>
         <div className="c-play-meta">
           <span className="c-badge">第 {spec.levelId} 关</span>
+          <span className="c-badge c-badge--strategy">{spec.masteryLabel}</span>
           <span className="c-timer">{steps} 步</span>
+          <span className="c-timer">复杂度 {spec.complexity}</span>
           {mechanic === "collect" && (
             <span className={`c-collect-pill ${collectDone ? "c-collect-pill--done" : ""}`}>
               {scene.collectEmoji ?? "🍬"} {collectTotal - treatsRemaining.size}/{collectTotal}
@@ -395,16 +503,36 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, onGamepl
           <div className="c-level-objective" aria-live="polite">
             <div>
               <span className="c-objective-kicker">LEVEL {spec.levelId}</span>
-              <strong>{scene.label}</strong>
+              <strong>{spec.chapter.name}</strong>
+              <p className="c-objective-brief">{spec.objectiveBrief}</p>
             </div>
             <span className="c-objective-goal">
-              {mechanic === "collect"
-                ? collectDone
-                  ? "终点已开启"
-                  : `收集 ${collectTotal - treatsRemaining.size}/${collectTotal}`
-                : `到达 ${scene.goalEmoji}`}
+              {mechanic === "collect" && !collectDone
+                ? `收集 ${collectTotal - treatsRemaining.size}/${collectTotal}`
+                : !relicDone
+                  ? `遗物 ${spec.objectives.find((item) => item.id === "extract_relic")?.label ?? "撤离"} ${status.relicsCollected}/${status.relicsCollected + relicsRemaining.size}`
+                  : `到达 ${scene.goalEmoji}`}
             </span>
           </div>
+          <div className="c-strategy-strip" aria-label="战术目标">
+            {spec.modifierIds.map((modifier) => (
+              <span key={modifier}>{MODIFIER_COPY[modifier].short}</span>
+            ))}
+            <span>钥匙 {status.keysHeld}</span>
+            {game.requiredRelics > 0 && <span>遗物 {status.relicsCollected}/{game.requiredRelics}</span>}
+            {phaseDoorCells.size > 0 && <span>{status.phaseOpen ? "相位开启" : "相位闭合"}</span>}
+            {status.freezeMoves > 0 && <span>冻结 {status.freezeMoves}</span>}
+            {status.revealPulseMoves > 0 && <span>脉冲 {status.revealPulseMoves}</span>}
+            <span>风险 {dangerCount}</span>
+            {toolUseCount > 0 && <span>工具 {toolUseCount}</span>}
+            {status.lastMessage && <strong>{status.lastMessage}</strong>}
+          </div>
+          {firstUnseenMechanic && (
+            <div className="c-mechanic-tip" role="note">
+              <strong>新机制 · {MODIFIER_COPY[firstUnseenMechanic].name}</strong>
+              <span>{MODIFIER_COPY[firstUnseenMechanic].description}</span>
+            </div>
+          )}
           <div
             className="maze-board-wrap"
             onPointerDown={onBoardPointerDown}
@@ -435,17 +563,37 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, onGamepl
                         const treat = !wall && treatsRemaining.has(pk);
                         const gust = gustMap.get(pk);
                         const portal = onPortal(r, c);
-                        const fogCell = fogOn && !wall && manhattan(player, { row: r, col: c }) > 2;
+                        const keyCell = !wall && keyCells.has(pk) && isRevealed(r, c);
+                        const lockCell = !wall && lockCells.has(pk);
+                        const trapCell = !wall && trapCells.has(pk) && isRevealed(r, c);
+                        const sentryCell = !wall && sentryCells.has(pk) && isRevealed(r, c);
+                        const switchCell = !wall && switchCells.has(pk);
+                        const unstableCell = !wall && unstableCells.has(pk) && isRevealed(r, c);
+                        const memoryRuneCell = !wall && memoryRuneCells.has(pk) && isRevealed(r, c);
+                        const memoryGateCell = !wall && memoryGateCells.has(pk);
+                        const phaseDoorCell = !wall && phaseDoorCells.has(pk);
+                        const relicCell = !wall && relicsRemaining.has(pk);
+                        const fogCell = fogOn && !wall && manhattan(player, { row: r, col: c }) > revealRadius;
                         const flash = hintFlash && hintFlash.row === r && hintFlash.col === c;
                         return (
                           <div
                             key={pk}
-                            className={`maze-cell ${wall ? "maze-wall" : "maze-path"} ${goalHere ? "maze-goal-cell" : ""} ${treat ? "maze-treat-cell" : ""} ${gust ? "maze-gust-cell" : ""} ${portal ? "maze-portal-cell" : ""} ${fogCell ? "maze-fog-cell" : ""} ${flash ? "maze-hint-flash" : ""}`}
+                            className={`maze-cell ${wall ? "maze-wall" : "maze-path"} ${goalHere ? "maze-goal-cell" : ""} ${treat ? "maze-treat-cell" : ""} ${gust ? "maze-gust-cell" : ""} ${portal ? "maze-portal-cell" : ""} ${keyCell ? "maze-key-cell" : ""} ${lockCell ? "maze-lock-cell" : ""} ${trapCell ? "maze-trap-cell" : ""} ${sentryCell ? "maze-sentry-cell" : ""} ${switchCell ? "maze-switch-cell" : ""} ${unstableCell ? "maze-unstable-cell" : ""} ${memoryRuneCell ? "maze-memory-cell" : ""} ${memoryGateCell ? "maze-memory-gate-cell" : ""} ${phaseDoorCell ? "maze-phase-cell" : ""} ${relicCell ? "maze-relic-cell" : ""} ${fogCell ? "maze-fog-cell" : ""} ${flash ? "maze-hint-flash" : ""}`}
                             aria-hidden
                           >
                             {!wall && treat && <span className="maze-treat">{scene.collectEmoji ?? "🍬"}</span>}
                             {!wall && gust && <span className="maze-gust-arrow">{gustArrow(gust)}</span>}
                             {!wall && portal && <span className="maze-portal-mark">✧</span>}
+                            {!wall && keyCell && <span className="maze-strategy-mark">钥</span>}
+                            {!wall && lockCell && <span className="maze-strategy-mark">锁</span>}
+                            {!wall && trapCell && <span className="maze-strategy-mark">⚠</span>}
+                            {!wall && sentryCell && <span className="maze-strategy-mark">哨</span>}
+                            {!wall && switchCell && <span className="maze-strategy-mark">闸</span>}
+                            {!wall && unstableCell && <span className="maze-strategy-mark">裂</span>}
+                            {!wall && memoryRuneCell && <span className="maze-strategy-mark">纹</span>}
+                            {!wall && memoryGateCell && <span className="maze-strategy-mark">忆</span>}
+                            {!wall && phaseDoorCell && <span className="maze-strategy-mark">相</span>}
+                            {!wall && relicCell && <span className="maze-strategy-mark">遗</span>}
                             {here && (
                               <span className="maze-player" title="你">
                                 <span className="maze-player-emoji">{scene.playerEmoji}</span>
@@ -483,6 +631,22 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, onGamepl
           <span>↩</span>
           <small>{undoLeft}</small>
         </button>
+        {tacticalBarTools
+          .filter((tool) => save.toolsUnlocked[tool] || (toolCharges[tool] ?? 0) > 0 || spec.recommendedTools.includes(tool))
+          .slice(0, 5 + extraLoadoutSlots)
+          .map((tool) => (
+            <button
+              key={tool}
+              type="button"
+              className="c-action-btn c-action-btn--skill"
+              disabled={(toolCharges[tool] ?? 0) < 1 || won || givenUp}
+              onClick={() => onTacticalTool(tool)}
+              title={TACTICAL_TOOL_META[tool].description}
+            >
+              <span>{tool === "scanner" ? "⌖" : tool === "freeze" ? "❄" : tool === "bridge" ? "▰" : tool === "decoy" ? "◇" : tool === "key_forge" ? "钥" : "◉"}</span>
+              <small>{toolCharges[tool] ?? 0}</small>
+            </button>
+          ))}
         <button
           type="button"
           className="c-action-btn"
@@ -526,6 +690,21 @@ export function MazeLevelPlay({ spec, save, activeObstacles, onResolve, onGamepl
             <p className="c-result-sub">
               {endStats?.steps ?? steps} 步 · {((endStats?.durationMs ?? displayMs) / 1000).toFixed(1)} 秒
             </p>
+            <div className="c-result-strategy">
+              <span>{mastery?.label ?? spec.masteryLabel}</span>
+              <strong>{mastery ? `${mastery.score} 分` : dangerCount === 0 ? "零风险路线" : `风险触发 ${dangerCount} 次`}</strong>
+              <em>{toolUseCount > 0 ? `使用工具 ${toolUseCount} 次` : "未使用额外工具"}</em>
+              {mastery && <div className="c-mastery-breakdown">{mastery.contributors.slice(0, 4).map((item) => <small key={item}>{item}</small>)}</div>}
+              <p>
+                {won
+                  ? mastery
+                    ? mastery.tip
+                    : relicDone
+                      ? "目标完成。下一步尝试压缩路线并保留工具，提高大师评价。"
+                      : "已通关，但遗物收益未完全拿到。"
+                  : status.lastMessage || "复盘路线，优先处理钥匙、机关和危险格。"}
+              </p>
+            </div>
             <div className="c-result-actions">
               {won && postLevelOfferLabel && onPostLevelOffer && (
                 <button type="button" className="maze-btn-primary maze-btn-ad" onClick={onPostLevelOffer}>

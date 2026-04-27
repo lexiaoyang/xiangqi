@@ -30,7 +30,19 @@ function solve(g: GameBundle): { won: boolean; explored: number } {
 }
 
 function stateKey(g: GameBundle): string {
-  return `${posKey(g.player)}|${[...g.treatsRemaining].sort().join(",")}`;
+  return [
+    posKey(g.player),
+    [...g.treatsRemaining].sort().join(","),
+    [...g.relicsRemaining].sort().join(","),
+    [...g.keyCells].sort().join(","),
+    [...g.lockCells].sort().join(","),
+    [...g.memoryRuneCells].sort().join(","),
+    [...g.memoryGateCells].sort().join(","),
+    g.status.keysHeld,
+    g.status.memoryRunes,
+    g.status.switchesActivated,
+    g.status.phaseOpen ? "phase1" : "phase0"
+  ].join("|");
 }
 
 describe("campaign solvability", () => {
@@ -39,11 +51,11 @@ describe("campaign solvability", () => {
 
     for (let levelId = 1; levelId <= MAX_LEVEL_ID; levelId += 1) {
       const spec = getLevelSpec(levelId);
-      const g = buildGameBundleSeeded(spec.sceneId, spec.difficulty, spec.layoutSeed);
+      const g = buildGameBundleSeeded(spec.sceneId, spec.difficulty, spec.layoutSeed, spec);
       const result = solve(g);
       if (!result.won) failures.push({ levelId, explored: result.explored });
     }
 
     expect(failures).toEqual([]);
-  });
+  }, 30_000);
 });

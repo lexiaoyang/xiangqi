@@ -25,6 +25,14 @@ const localSave = (): CampaignSaveV1 => ({
   coins: 120,
   stamina: 20,
   toolsUnlocked: {},
+  toolInventory: {},
+  vip: { points: 0 },
+  seenMechanics: {},
+  masteryRecords: {},
+  daily: { day: "2026-01-01", levelId: 1 },
+  streak: { count: 0, best: 0 },
+  achievements: {},
+  codex: {},
   lastStaminaTs: Date.now()
 });
 

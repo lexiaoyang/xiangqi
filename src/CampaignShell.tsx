@@ -2,8 +2,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MAX_LEVEL_ID } from "./campaign/constants";
 import { filterObstaclesForRun } from "./campaign/mechanics";
 import { getLevelSpec } from "./campaign/levelSpec";
-import { applyToolUnlocksFromProgress, loadCampaignSave, regenStamina, saveCampaignSave } from "./campaign/persist";
-import type { CampaignSaveV1 } from "./campaign/types";
+import { applyToolUnlocksFromProgress, consumeToolCharge, grantToolCharges, loadCampaignSave, regenStamina, saveCampaignSave } from "./campaign/persist";
+import {
+  ACHIEVEMENTS,
+  MODIFIER_COPY,
+  achievementUnlocks,
+  applyAchievementUnlocks,
+  dailyChallengeFor,
+  ensureDailyState,
+  evaluateMastery,
+  recordCodexSeen,
+  recordMastery,
+  streakReward,
+  totalMasteryScore,
+  updateStreakAfterClear
+} from "./campaign/retention";
+import { nextVipTier, rewardWithVipBonus, serverDay, TACTICAL_TOOL_META, vipStaminaCap, vipTierFor } from "./campaign/strategy";
+import type { CampaignSaveV1, RewardProfile, StrategicModifierId, ToolId } from "./campaign/types";
 import { MazeLevelPlay, type PlayResolve } from "./MazeLevelPlay";
 import { offersForSurface, offerEligibility, offerRewardText, runRewardedAdOffer } from "./platform/adOffers";
 import { AudioManager, loadAudioSettings } from "./platform/audio";
@@ -26,6 +41,7 @@ export function CampaignShell() {
   const [playLevelId, setPlayLevelId] = useState<number | null>(null);
   const [retryKey, setRetryKey] = useState(0);
   const [shopConfirm, setShopConfirm] = useState<string | null>(null);
+  const [prepLevelId, setPrepLevelId] = useState<number | null>(null);
   const [platformSession, setPlatformSession] = useState<UserSession | null>(null);
   const [platformSyncText, setPlatformSyncText] = useState("平台初始化中");
   const [catalog, setCatalog] = useState<ProductCatalog>(fallbackCatalog);
@@ -40,6 +56,16 @@ export function CampaignShell() {
   const [toast, setToast] = useState<string | null>(null);
   const audioRef = useRef<AudioManager | null>(null);
   const accountSummary = summarizeAccount(platformSession);
+  const vipTier = vipTierFor(save.vip.points);
+  const nextVip = nextVipTier(save.vip.points);
+  const staminaCap = vipStaminaCap(save.vip);
+  const today = serverDay();
+  const dailyState = save.daily.day === today ? save.daily : dailyChallengeFor(today, save.maxUnlockedLevel);
+  const dailySpec = getLevelSpec(dailyState.levelId);
+  const dailyReward = streakReward(Math.max(1, save.streak.count + (save.streak.lastClearDay === today ? 0 : 1)));
+  const unlockedAchievementCount = Object.keys(save.achievements).length;
+  const discoveredCodexCount = Object.keys(save.codex).length;
+  const masteryScore = totalMasteryScore(save);
   usePageAnalytics({ screen, session: platformSession, config: liveConfig });
 
   const persist = useCallback((next: CampaignSaveV1) => {
@@ -125,6 +151,16 @@ export function CampaignShell() {
   }, [save]);
 
   const startLevel = (levelId: number) => {
+    const spec = getLevelSpec(levelId);
+    if (spec.complexity > 1) {
+      setPrepLevelId(levelId);
+      trackCampaign("level_prep_open", { levelId, archetype: spec.archetype, complexity: spec.complexity });
+      return;
+    }
+    beginLevel(levelId);
+  };
+
+  const beginLevel = (levelId: number) => {
     if (save.stamina < 1) {
       trackCampaign("level_start_blocked", { levelId, reason: "stamina_shortage" });
       const offer = offersForSurface(liveConfig, "home").find((item) => item.id === "stamina_home");
@@ -137,6 +173,7 @@ export function CampaignShell() {
       return;
     }
     playTap();
+    setPrepLevelId(null);
     trackCampaign("level_start", { levelId, staminaBefore: save.stamina });
     const next = { ...save, stamina: save.stamina - 1, lastStaminaTs: Date.now() };
     persist(next);
@@ -150,6 +187,32 @@ export function CampaignShell() {
     if (!activeSpec) return [];
     return filterObstaclesForRun(activeSpec.obstacleIds, save.maxUnlockedLevel);
   }, [activeSpec, save.maxUnlockedLevel]);
+
+  const applyRewardProfile = useCallback((base: CampaignSaveV1, profile: RewardProfile): CampaignSaveV1 => {
+    let next = { ...base };
+    next.coins += profile.coins ?? 0;
+    if (profile.stamina) next.stamina = Math.min(vipStaminaCap(next.vip), next.stamina + profile.stamina);
+    if (profile.vipPoints) next.vip = { ...next.vip, points: next.vip.points + profile.vipPoints };
+    if (profile.toolCharges) next = grantToolCharges(next, profile.toolCharges);
+    return next;
+  }, []);
+
+  const grantSkuToSave = useCallback(
+    (base: CampaignSaveV1, sku: ProductCatalog["skus"][number]): CampaignSaveV1 => {
+      let next = { ...base };
+      for (const item of sku.contents) {
+        if (item.kind === "coins") next.coins += item.amount;
+        if (item.kind === "stamina") next.stamina = Math.min(vipStaminaCap(next.vip), next.stamina + item.amount);
+        if (item.kind === "hint" || item.kind === "undo") next = grantToolCharges(next, { [item.kind]: item.amount });
+        if (item.kind === "premium") next.vip = { ...next.vip, points: next.vip.points + item.amount };
+      }
+      const tactical = Object.fromEntries((sku.tacticalContents ?? []).map((item) => [item.toolId, item.amount])) as Partial<Record<ToolId, number>>;
+      if (sku.tacticalContents?.length) next = grantToolCharges(next, tactical);
+      if (sku.vipPoints) next.vip = { ...next.vip, points: next.vip.points + sku.vipPoints };
+      return next;
+    },
+    []
+  );
 
   const onPlayResolve = (r: PlayResolve) => {
     if (!playLevelId || !activeSpec) return;
@@ -181,14 +244,66 @@ export function CampaignShell() {
       const mergedStars = Math.max(prev, r.stars) as 0 | 1 | 2 | 3;
       next.perLevel = { ...next.perLevel, [key]: { stars: mergedStars, cleared: true } };
       next.maxUnlockedLevel = Math.min(MAX_LEVEL_ID, Math.max(next.maxUnlockedLevel, playLevelId + 1));
-      next.coins += 8 + r.stars * 6;
+      next = applyRewardProfile(next, {
+        ...activeSpec.rewardProfile,
+        coins: rewardWithVipBonus(activeSpec.rewardProfile.coins + r.stars * 6, next.vip)
+      });
+      const clearStats = {
+        stars: r.stars,
+        steps: r.steps,
+        durationMs: r.durationMs,
+        dangerHits: r.dangerHits,
+        toolUses: r.toolUses,
+        relicsCollected: r.relicsCollected,
+        requiredRelics: r.requiredRelics
+      };
+      const mastery = evaluateMastery(activeSpec, clearStats, next.vip.points);
+      next = recordMastery(next, playLevelId, mastery, clearStats);
+
+      const messages: string[] = [`${mastery.label} ${mastery.score} 分`];
+      const codexResult = recordCodexSeen(next, activeSpec.modifierIds);
+      next = codexResult.save;
+      if (codexResult.reward) {
+        next = applyRewardProfile(next, codexResult.reward);
+        messages.push(`图鉴发现 +${codexResult.reward.coins} 金币`);
+      }
+
+      next = ensureDailyState(next, today);
+      if (next.daily.day === today && next.daily.levelId === playLevelId && !next.daily.completedAt) {
+        const reward: RewardProfile = { coins: 120, stamina: 1, toolCharges: { scanner: 1 } };
+        next = applyRewardProfile({ ...next, daily: { ...next.daily, completedAt: new Date().toISOString() } }, reward);
+        messages.push("每日挑战完成");
+      }
+
+      const streak = updateStreakAfterClear(next, today);
+      next = streak.save;
+      if (streak.reward) {
+        next = applyRewardProfile(next, streak.reward);
+        messages.push(`连续挑战 ${next.streak.count} 天`);
+      }
+
+      const unlocks = achievementUnlocks(next, clearStats);
+      if (unlocks.length) {
+        next = applyAchievementUnlocks(next, unlocks);
+        for (const unlock of unlocks) next = applyRewardProfile(next, unlock.reward);
+        messages.push(`成就解锁：${unlocks.map((item) => item.title).join("、")}`);
+        audioRef.current?.playSfx("reward_claim");
+      }
+      if (messages.length) {
+        setToast(messages.join(" · "));
+        window.setTimeout(() => setToast(null), 2600);
+      }
       if (platformSession) {
         trackEvent("level_complete", platformSession, liveConfig, {
           levelId: playLevelId,
           stars: r.stars,
           steps: r.steps,
           durationMs: r.durationMs,
-          won: r.won
+          won: r.won,
+          masteryScore: mastery.score,
+          masteryBadge: mastery.badge,
+          dangerHits: r.dangerHits,
+          toolUses: r.toolUses
         });
         ingestRewardProgress(platformSession, { kind: "level_clear", amount: 1, refId: `level:${playLevelId}` }).then((result) => {
           if (result.ok) setRewardCenter(result.data);
@@ -220,7 +335,9 @@ export function CampaignShell() {
       setShopConfirm(null);
       return;
     }
-    if (!window.confirm(`购买「${sku.title}」？\n价格：${sku.priceLabel}\n内容：${sku.contents.map((item) => `${item.kind}×${item.amount}`).join("、")}`)) {
+    const tacticalText = (sku.tacticalContents ?? []).map((item) => `${TACTICAL_TOOL_META[item.toolId as ToolId]?.shortName ?? item.toolId}×${item.amount}`);
+    const contentsText = [...sku.contents.map((item) => `${item.kind}×${item.amount}`), ...tacticalText, ...(sku.vipPoints ? [`VIP点×${sku.vipPoints}`] : [])].join("、");
+    if (!window.confirm(`购买「${sku.title}」？\n价格：${sku.priceLabel}\n内容：${contentsText}\n用途：${sku.valueCopy ?? sku.description}`)) {
       trackCampaign("purchase_cancelled", { skuId });
       setShopConfirm(null);
       return;
@@ -232,11 +349,7 @@ export function CampaignShell() {
       setShopConfirm(null);
       return;
     }
-    const nextSave = { ...save };
-    for (const item of result.data.sku.contents) {
-      if (item.kind === "coins") nextSave.coins += item.amount;
-      if (item.kind === "stamina") nextSave.stamina = Math.min(30, nextSave.stamina + item.amount);
-    }
+    const nextSave = grantSkuToSave(save, result.data.sku);
     persist(nextSave);
     audioRef.current?.playSfx("purchase_success");
     trackCampaign("purchase_success", { skuId, amount: sku.amount, currency: sku.currency });
@@ -280,9 +393,12 @@ export function CampaignShell() {
     }
     let next = { ...save };
     for (const reward of result.data.rewards) {
-      if (reward.kind === "stamina") next = { ...next, stamina: Math.min(30, next.stamina + reward.amount) };
+      if (reward.kind === "stamina") next = { ...next, stamina: Math.min(vipStaminaCap(next.vip), next.stamina + reward.amount) };
       if (reward.kind === "coins") next = { ...next, coins: next.coins + reward.amount };
-      if (reward.kind === "hint") setHintCredits((n) => n + reward.amount);
+      if (reward.kind === "hint") {
+        next = grantToolCharges(next, { hint: reward.amount });
+        setHintCredits((n) => n + reward.amount);
+      }
     }
     persist(next);
     audioRef.current?.playSfx("ad_complete");
@@ -307,7 +423,8 @@ export function CampaignShell() {
     const next = { ...save };
     for (const item of result.data.reward.rewards) {
       if (item.kind === "coins") next.coins += item.amount;
-      if (item.kind === "stamina") next.stamina = Math.min(30, next.stamina + item.amount);
+      if (item.kind === "stamina") next.stamina = Math.min(vipStaminaCap(next.vip), next.stamina + item.amount);
+      if (item.kind === "hint" || item.kind === "undo") Object.assign(next, grantToolCharges(next, { [item.kind]: item.amount }));
     }
     persist(next);
     audioRef.current?.playSfx("reward_claim");
@@ -330,8 +447,12 @@ export function CampaignShell() {
     const next = { ...save };
     for (const item of result.data.task.rewards) {
       if (item.kind === "coins") next.coins += item.amount;
-      if (item.kind === "stamina") next.stamina = Math.min(30, next.stamina + item.amount);
-      if (item.kind === "hint") setHintCredits((n) => n + item.amount);
+      if (item.kind === "stamina") next.stamina = Math.min(vipStaminaCap(next.vip), next.stamina + item.amount);
+      if (item.kind === "hint") {
+        Object.assign(next, grantToolCharges(next, { hint: item.amount }));
+        setHintCredits((n) => n + item.amount);
+      }
+      if (item.kind === "undo") Object.assign(next, grantToolCharges(next, { undo: item.amount }));
     }
     persist(next);
     audioRef.current?.playSfx("reward_claim");
@@ -389,6 +510,24 @@ export function CampaignShell() {
     if (result.ok) setConsent(result.data);
   };
 
+  const claimVipDaily = () => {
+    if (vipTier.level < 1) {
+      setScreen("shop");
+      return;
+    }
+    const today = serverDay();
+    if (save.vip.dailyClaimedAt === today) {
+      setToast("今日 VIP 战术包已领取");
+      window.setTimeout(() => setToast(null), 1800);
+      return;
+    }
+    const next = applyRewardProfile(save, vipTier.dailyPack);
+    persist({ ...next, vip: { ...next.vip, dailyClaimedAt: today } });
+    audioRef.current?.playSfx("reward_claim");
+    setToast(`VIP 每日战术包已到账：金币×${vipTier.dailyPack.coins}${vipTier.dailyPack.stamina ? ` / 体力×${vipTier.dailyPack.stamina}` : ""}`);
+    window.setTimeout(() => setToast(null), 2200);
+  };
+
   const levelWindow = useMemo(() => {
     const hi = Math.min(MAX_LEVEL_ID, save.maxUnlockedLevel + 1);
     const lo = Math.max(1, hi - 40);
@@ -404,10 +543,60 @@ export function CampaignShell() {
   const hintOffer = liveConfig.rewardedAdOffers.find((item) => item.id === "hint_home");
   const staminaEligibility = staminaOffer ? offerEligibility(platformSession, staminaOffer, liveConfig) : null;
   const hintEligibility = hintOffer ? offerEligibility(platformSession, hintOffer, liveConfig) : null;
+  const shopGroups = [
+    { id: "resources", title: "资源补给", subtitle: "金币、体力和基础恢复" },
+    { id: "tactical_tools", title: "战术工具", subtitle: "扫描、冻结、架桥等解题工具" },
+    { id: "chapter_prep", title: "章节备战", subtitle: "针对机关与遗物关的组合包" },
+    { id: "vip", title: "VIP 权益", subtitle: "每日包、折扣、体力上限和战术槽" },
+    { id: "limited", title: "限时大师包", subtitle: "高难章节的收益与容错" },
+    { id: "starter", title: "新手恢复", subtitle: "连续挑战用的低门槛补给" }
+  ];
 
   const overlays = (
     <>
       {toast && <div className="c-toast" role="status">{toast}</div>}
+      {prepLevelId != null && (() => {
+        const prep = getLevelSpec(prepLevelId);
+        return (
+          <div className="c-modal-backdrop" role="dialog" aria-modal="true" aria-label={`第${prep.levelId}关战术简报`}>
+            <section className="c-level-prep">
+              <button type="button" className="c-modal-close" onClick={() => setPrepLevelId(null)} aria-label="关闭战术简报">
+                ×
+              </button>
+              <span className="c-store-kicker">TACTICAL BRIEF</span>
+              <h2>{prep.chapter.name} · 第 {prep.levelId} 关</h2>
+              <p>{prep.objectiveBrief}</p>
+              <div className="c-prep-grid">
+                <div><span>复杂度</span><strong>{"★".repeat(prep.complexity)}</strong></div>
+                <div><span>类型</span><strong>{prep.masteryLabel}</strong></div>
+                <div><span>体力</span><strong>消耗 1 / {staminaCap}</strong></div>
+              </div>
+              <div className="c-prep-section">
+                <strong>目标</strong>
+                {prep.objectives.map((objective) => (
+                  <span key={objective.id}>{objective.required ? "必做" : "加分"} · {objective.label}</span>
+                ))}
+              </div>
+              <div className="c-prep-section">
+                <strong>推荐工具</strong>
+                {prep.recommendedTools.map((tool) => (
+                  <span key={tool}>{TACTICAL_TOOL_META[tool].shortName} · 库存 {save.toolInventory[tool] ?? 0}</span>
+                ))}
+              </div>
+              {prep.firstTimeMechanic && <p className="c-prep-tip">新机制：{MODIFIER_COPY[prep.firstTimeMechanic].name}。{MODIFIER_COPY[prep.firstTimeMechanic].description}</p>}
+              <div className="c-modal-actions">
+                <button type="button" className="c-cta-secondary" onClick={() => setScreen("shop")}>
+                  补充工具
+                </button>
+                <button type="button" className="c-cta-primary" onClick={() => beginLevel(prep.levelId)}>
+                  <span>进入关卡</span>
+                  <strong>START</strong>
+                </button>
+              </div>
+            </section>
+          </div>
+        );
+      })()}
       {adPreviewOffer && (
         <div className="c-modal-backdrop" role="dialog" aria-modal="true" aria-label={adPreviewOffer.title}>
           <section className="c-ad-preview">
@@ -477,6 +666,9 @@ export function CampaignShell() {
           bonusHintCharges={hintCredits}
           onHintShortage={() => hintOffer && setAdPreviewOffer(hintOffer)}
           onGameplayEvent={(name, data) => trackCampaign(name, data)}
+          onToolUse={(tool) => persist(consumeToolCharge(save, tool))}
+          extraLoadoutSlots={vipTier.benefits.extraLoadoutSlots}
+          scannerRadiusBonus={vipTier.benefits.scannerRadiusBonus}
           postLevelOfferLabel={staminaOffer ? "看广告领体力 +3" : undefined}
           onPostLevelOffer={() => staminaOffer && setAdPreviewOffer(staminaOffer)}
           onResolve={onPlayResolve}
@@ -494,30 +686,44 @@ export function CampaignShell() {
           <button type="button" className="c-icon-btn" onClick={() => goScreen("hub")}>
             ←
           </button>
-          <h1 className="c-hub-title">宝石商店</h1>
+          <h1 className="c-hub-title">战术商店</h1>
           <span />
         </header>
         <section className="c-store-hero">
           <span className="c-store-kicker">STORE</span>
-          <h2>补给舱已开启</h2>
-          <p>商品目录版本：{catalog.version} · 订单、校验、发货全链路模拟</p>
+          <h2>不是买数值，是买战术选择</h2>
+          <p>商品目录版本：{catalog.version} · VIP {vipTier.level} 的体力、奖励、扫描半径和战术槽已实时生效 · 工具会直接进入关卡库存</p>
         </section>
-        <div className="c-sku-grid">
-          {catalog.skus.map((sku) => {
-            const eligible = catalog.eligibility[sku.id]?.purchasable;
-            return (
-              <button key={sku.id} type="button" className="c-sku-card" disabled={!eligible} onClick={() => buyMock(sku.id)}>
-                <span className="c-sku-shine" aria-hidden />
-                <span className="c-sku-tag">{sku.tags[0] ?? "HOT"}</span>
-                <span className="c-sku-ico">{sku.contents.some((item) => item.kind === "stamina") ? "⚡" : "💎"}</span>
-                <span className="c-sku-name">{sku.title}</span>
-                <span className="c-shop-lead">{sku.description}</span>
-                <span className="c-sku-content">{sku.contents.map((item) => `${item.kind} × ${item.amount}`).join(" / ")}</span>
-                <span className="c-sku-price">{eligible ? sku.priceLabel : "暂不可购"}</span>
-              </button>
-            );
-          })}
-        </div>
+        {shopGroups.map((group) => {
+          const skus = catalog.skus.filter((sku) => (sku.category ?? "resources") === group.id);
+          if (skus.length === 0) return null;
+          return (
+            <section key={group.id} className="c-shop-group">
+              <div className="c-shop-group-head">
+                <h3>{group.title}</h3>
+                <p>{group.subtitle}</p>
+              </div>
+              <div className="c-sku-grid">
+                {skus.map((sku) => {
+                  const eligible = catalog.eligibility[sku.id]?.purchasable;
+                  const tacticalText = (sku.tacticalContents ?? []).map((item) => `${TACTICAL_TOOL_META[item.toolId as ToolId]?.shortName ?? item.toolId} × ${item.amount}`);
+                  const contentText = [...sku.contents.map((item) => `${item.kind} × ${item.amount}`), ...tacticalText, ...(sku.vipPoints ? [`VIP点 × ${sku.vipPoints}`] : [])].join(" / ");
+                  return (
+                    <button key={sku.id} type="button" className={`c-sku-card c-sku-card--${sku.category ?? "resources"}`} disabled={!eligible} onClick={() => buyMock(sku.id)}>
+                      <span className="c-sku-shine" aria-hidden />
+                      <span className="c-sku-tag">{sku.tags[0] ?? "HOT"}</span>
+                      <span className="c-sku-ico">{sku.category === "vip" ? "👑" : sku.category === "tactical_tools" ? "🧰" : sku.contents.some((item) => item.kind === "stamina") ? "⚡" : "💎"}</span>
+                      <span className="c-sku-name">{sku.title}</span>
+                      <span className="c-shop-lead">{sku.valueCopy ?? sku.description}</span>
+                      <span className="c-sku-content">{contentText}</span>
+                      <span className="c-sku-price">{eligible ? sku.priceLabel : "暂不可购"}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
         <p className="c-shop-note">可购商品：{purchasableSkus(catalog).length} / {catalog.skus.length}</p>
         {shopConfirm && <p className="c-shop-note">已选择：{shopConfirm}</p>}
         {overlays}
@@ -606,6 +812,48 @@ export function CampaignShell() {
               </button>
             </article>
           ))}
+          <section className="c-retention-section" aria-label="成就进度">
+            <div className="c-shop-group-head">
+              <h3>成就目标</h3>
+              <p>把“会通关”变成“会打漂亮仗”。</p>
+            </div>
+            {ACHIEVEMENTS.map((achievement) => {
+              const unlocked = Boolean(save.achievements[achievement.id]);
+              return (
+                <article key={achievement.id} className={`c-reward-card c-reward-card--achievement ${unlocked ? "c-reward-card--done" : ""}`}>
+                  <div>
+                    <span className="c-account-kicker">{unlocked ? "已解锁" : "挑战中"}</span>
+                    <strong>{achievement.title}</strong>
+                    <p>{achievement.description} · 奖励 金币×{achievement.reward.coins}{achievement.reward.stamina ? ` / 体力×${achievement.reward.stamina}` : ""}{achievement.reward.vipPoints ? ` / VIP点×${achievement.reward.vipPoints}` : ""}</p>
+                  </div>
+                  <button type="button" className="c-account-bind" disabled>
+                    {unlocked ? "已领取" : "未完成"}
+                  </button>
+                </article>
+              );
+            })}
+          </section>
+          <section className="c-retention-section" aria-label="机制图鉴">
+            <div className="c-shop-group-head">
+              <h3>机制图鉴</h3>
+              <p>首次遇到机制会解锁说明和小额发现奖励。</p>
+            </div>
+            {Object.entries(MODIFIER_COPY).map(([id, copy]) => {
+              const unlocked = Boolean(save.codex[id as StrategicModifierId]);
+              return (
+                <article key={id} className={`c-reward-card c-reward-card--codex ${unlocked ? "c-reward-card--done" : ""}`}>
+                  <div>
+                    <span className="c-account-kicker">{unlocked ? "已发现" : "未发现"}</span>
+                    <strong>{copy.name}</strong>
+                    <p>{unlocked ? copy.description : "继续推进章节，首次遇到后解锁规则说明。"}</p>
+                  </div>
+                  <button type="button" className="c-account-bind" disabled>
+                    {unlocked ? "已收录" : "探索中"}
+                  </button>
+                </article>
+              );
+            })}
+          </section>
         </div>
         {overlays}
       </div>
@@ -680,7 +928,7 @@ export function CampaignShell() {
         <div className="c-res">
           <span className="c-res-ico">⚡</span>
           <span className="c-res-val">
-            {save.stamina}/30
+            {save.stamina}/{staminaCap}
           </span>
         </div>
         <button type="button" className="c-icon-btn" onClick={() => goScreen("settings")} aria-label="设置">
@@ -695,7 +943,9 @@ export function CampaignShell() {
           <strong>{accountSummary.label}</strong>
           <p>{accountSummary.detail} · {platformSyncText}</p>
         </div>
-        <span className="c-account-tier">VIP 0</span>
+        <button type="button" className="c-account-tier c-account-tier--live" onClick={claimVipDaily} title={vipTier.level > 0 ? "领取 VIP 每日战术包" : "查看 VIP 权益"}>
+          {vipTier.name}
+        </button>
         {accountSummary.state === "guest" && (
           <button type="button" className="c-account-bind" onClick={bindAccountMock}>
             绑定
@@ -707,7 +957,7 @@ export function CampaignShell() {
         <div className="c-hero-copy">
           <span className="c-season-pill">S1 星门远征</span>
           <h1 className="c-brand-title">迷宫大冒险</h1>
-          <p className="c-brand-sub">闯关模式 · {MAX_LEVEL_ID} 关 · 商业化平台 Mock 已接入</p>
+          <p className="c-brand-sub">成人策略迷宫 · {MAX_LEVEL_ID} 关 · 钥匙、巡逻、机关、遗物多层解题</p>
         </div>
         <div className="c-hero-mascot" aria-hidden>
           <span className="c-mascot-aura" />
@@ -729,17 +979,66 @@ export function CampaignShell() {
             <span className="c-stat-k">累计星数</span>
             <span className="c-stat-v">{summary.stars}</span>
           </div>
+          <div className="c-stat-chip c-stat-chip--vip">
+            <span className="c-stat-k">VIP 权益</span>
+            <span className="c-stat-v">{nextVip ? `${save.vip.points}/${nextVip.minPoints}` : "MAX"}</span>
+          </div>
         </div>
+      </section>
+      <section className="c-vip-panel" aria-label="VIP 权益">
+        <div>
+          <span className="c-store-kicker">VIP BENEFITS</span>
+          <h2>{vipTier.name}</h2>
+          <p>
+            体力上限 +{vipTier.benefits.staminaCapBonus} · 恢复加速 {vipTier.benefits.staminaRegenReductionPct}% · 奖励 +{vipTier.benefits.rewardBonusPct}% · 额外战术槽 {vipTier.benefits.extraLoadoutSlots} · 扫描半径 +{vipTier.benefits.scannerRadiusBonus}
+          </p>
+        </div>
+        <button type="button" className="c-account-bind" onClick={claimVipDaily}>
+          {vipTier.level > 0 ? (save.vip.dailyClaimedAt === serverDay() ? "今日已领" : "领每日包") : "去开通"}
+        </button>
+      </section>
+
+      <section className="c-retention-grid" aria-label="每日目标与长期成长">
+        <article className={`c-retention-card c-retention-card--daily ${dailyState.completedAt ? "c-retention-card--done" : ""}`}>
+          <span className="c-store-kicker">DAILY CHALLENGE</span>
+          <h2>今日战术挑战</h2>
+          <p>第 {dailyState.levelId} 关 · {dailySpec.masteryLabel} · {dailySpec.modifierIds.map((modifier) => MODIFIER_COPY[modifier].short).slice(0, 3).join(" / ") || dailySpec.chapter.subtitle}</p>
+          <div className="c-retention-reward">
+            <span>奖励 金币×120 / 体力×1 / 扫描×1</span>
+            <strong>{dailyState.completedAt ? "已完成" : "待挑战"}</strong>
+          </div>
+          <button type="button" className="c-account-bind" disabled={Boolean(dailyState.completedAt)} onClick={() => startLevel(dailyState.levelId)}>
+            {dailyState.completedAt ? "今日完成" : "开始每日"}
+          </button>
+        </article>
+        <article className="c-retention-card c-retention-card--streak">
+          <span className="c-store-kicker">STREAK</span>
+          <h2>连续挑战 {save.streak.count} 天</h2>
+          <p>最佳 {save.streak.best} 天 · 下一次首胜奖励：金币×{dailyReward.coins}{dailyReward.stamina ? ` / 体力×${dailyReward.stamina}` : ""}{dailyReward.vipPoints ? ` / VIP点×${dailyReward.vipPoints}` : ""}</p>
+          <div className="c-retention-reward">
+            <span>今日状态</span>
+            <strong>{save.streak.lastClearDay === today ? "已续签" : "首胜续签"}</strong>
+          </div>
+        </article>
+        <article className="c-retention-card c-retention-card--mastery">
+          <span className="c-store-kicker">MASTERY</span>
+          <h2>大师总分 {masteryScore}</h2>
+          <p>成就 {unlockedAchievementCount}/{ACHIEVEMENTS.length} · 图鉴 {discoveredCodexCount}/{Object.keys(MODIFIER_COPY).length}</p>
+          <div className="c-retention-reward">
+            <span>长期目标</span>
+            <strong>全章节 S 级</strong>
+          </div>
+        </article>
       </section>
 
       <section className="c-hub-actions">
         <button type="button" className="c-cta-primary" onClick={() => startLevel(currentLevel)}>
           <span>开始挑战</span>
-          <strong>第 {currentLevel} 关</strong>
+          <strong>{getLevelSpec(currentLevel).masteryLabel} · 第 {currentLevel} 关</strong>
         </button>
         <div className="c-feature-grid">
           <button type="button" className="c-feature-card c-feature-card--shop" onClick={() => goScreen("shop")} aria-label="商店">
-            <span>💎</span><strong>商店</strong><em>{purchasableSkus(catalog).length} 个礼包</em>
+            <span>🧰</span><strong>战术商店</strong><em>{purchasableSkus(catalog).length} 个策略商品</em>
           </button>
           <button type="button" className="c-feature-card c-feature-card--ad" disabled={staminaEligibility?.state !== "available"} onClick={() => staminaOffer && setAdPreviewOffer(staminaOffer)} aria-label="看广告领体力">
             <span>🎬</span><strong>看广告领体力</strong><em>{staminaEligibility?.state === "cooldown" ? `${staminaEligibility.remainingCooldownSec}s 后可用` : staminaOffer ? offerRewardText(staminaOffer) : "补给冷却中"}</em>
@@ -766,6 +1065,7 @@ export function CampaignShell() {
           {levelWindow.map((id) => {
             const locked = id > save.maxUnlockedLevel;
             const rec = save.perLevel[String(id)];
+            const spec = getLevelSpec(id);
             return (
               <button
                 key={id}
@@ -776,6 +1076,8 @@ export function CampaignShell() {
                 aria-label={locked ? `第${id}关未解锁` : `开始第${id}关`}
               >
                 <span className="c-level-num">{id}</span>
+                <span className="c-level-type">{spec.masteryLabel}</span>
+                <span className="c-level-mods">{spec.modifierIds.slice(0, 2).map((modifier) => MODIFIER_COPY[modifier].short).join(" / ") || spec.chapter.subtitle}</span>
                 {rec && rec.stars > 0 && <span className="c-level-stars">{"★".repeat(rec.stars)}</span>}
               </button>
             );

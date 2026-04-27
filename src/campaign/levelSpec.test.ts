@@ -56,9 +56,19 @@ describe("campaign levelSpec", () => {
     expect(getLevelSpec(900).difficulty).toBe("expert");
   });
 
+  it("中后期关卡包含成人向策略元数据", () => {
+    const spec = getLevelSpec(90);
+    expect(spec.chapter.name).toContain("遗物");
+    expect(spec.complexity).toBeGreaterThanOrEqual(4);
+    expect(spec.modifierIds.length).toBeGreaterThan(1);
+    expect(spec.objectives.some((objective) => objective.id === "extract_relic")).toBe(true);
+    expect(spec.recommendedTools.length).toBeGreaterThan(0);
+    expect(spec.objectiveBrief).toContain("遗物");
+  });
+
   it("第 2 关收集物可达且收齐后能进终点", () => {
     const spec = getLevelSpec(2);
-    let g = buildGameBundleSeeded(spec.sceneId, spec.difficulty, spec.layoutSeed);
+    let g = buildGameBundleSeeded(spec.sceneId, spec.difficulty, spec.layoutSeed, spec);
 
     expect(g.mechanic).toBe("collect");
     expect(g.treatsRemaining.size).toBeGreaterThan(0);
